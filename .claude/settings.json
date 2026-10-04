@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run check:*)",
+      "Bash(npm run sanitize:*)",
+      "Bash(npm run demos:*)",
+      "Bash(npm run shots:*)",
+      "Bash(npm ci)",
+      "Bash(npx astro check:*)",
+      "Bash(npx astro build:*)",
+      "Bash(npx astro preview:*)",
+      "Bash(npx tsx scripts/demos/:*)",
+      "Bash(node scripts/check-sanitized.ts:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(aws sts get-caller-identity:*)",
+      "Bash(aws cloudformation describe-stacks:*)",
+      "Bash(aws cloudformation describe-stack-events:*)",
+      "Bash(aws cloudformation validate-template:*)",
+      "Bash(aws route53 list-hosted-zones-by-name:*)",
+      "Bash(aws route53 list-resource-record-sets:*)",
+      "Bash(aws cloudfront list-distributions:*)",
+      "Bash(aws cloudfront get-invalidation:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(curl -sS -I:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(aws s3 rb:*)",
+      "Bash(aws cloudformation delete-stack:*)"
+    ]
+  }
+}

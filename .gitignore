@@ -7,3 +7,4 @@ dist/
 .DS_Store
 .playwright-mcp/
 .sanitize-patterns
+.claude/settings.local.json
