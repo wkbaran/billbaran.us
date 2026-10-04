@@ -1,0 +1,228 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import Contact from '../components/Contact.astro';
+import { SITE } from '../site';
+
+const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+const skills = (await getCollection('skills')).sort((a, b) => a.data.order - b.data.order);
+const alsoBuilt = await getCollection('alsoBuilt');
+const jobs = await Promise.all(
+  (await getCollection('experience'))
+    .sort((a, b) => a.data.order - b.data.order)
+    .map(async (e) => ({ ...e.data, Content: (await render(e)).Content })),
+);
+const years = new Date().getFullYear() - 1998;
+const dev = import.meta.env.DEV;
+
+const hobbies = [
+  {
+    title: 'Self-hosting',
+    body: 'A home server runs my Docker stack: every app on this site, the scheduled jobs that publish them, an agent harness, and a local GPU model that handles most of the LLM work for free. If a SaaS has a monthly fee and an API, I have probably thought about replacing it.',
+  },
+  {
+    title: '3D printing',
+    body: 'Functional prints for around the house and the homelab: brackets, enclosures, organizers and replacement parts. Measure, model, print, then reprint once more.',
+  },
+  {
+    title: 'Learning Japanese',
+    body: 'Slowly, through real news. Kotoba no Sekai began as my own study tool: a few new words a day, at my level, each with the sentence it came from.',
+    link: { href: '/projects/kotoba/', label: 'Kotoba no Sekai' },
+  },
+  {
+    title: 'Options & markets',
+    body: 'I trade credit spreads and track a long-term portfolio, so I build my own tools for it: alerts that suggest what to do next, risk heatmaps, and a look at what Congress is trading.',
+    link: { href: '/projects/spread-book/', label: 'Spread Book' },
+  },
+];
+---
+<Base current="home">
+  <section class="hero">
+    <div class="wrap">
+      <span class="eyebrow">{SITE.role} · {SITE.location}</span>
+      <h1>Bill Baran<span class="dot">.</span></h1>
+      <p class="lede">{SITE.summary}</p>
+      <ul class="facts">
+        <li><strong>{years}</strong> years shipping software</li>
+        <li><strong>Java</strong> Spring · Micronaut · Grails</li>
+        <li><strong>AWS</strong> architecture &amp; IaC</li>
+        <li><strong>LLM agents</strong> MCP servers &amp; workflows</li>
+      </ul>
+      <div class="cta">
+        <a class="btn btn-signal" href="#projects">See the projects</a>
+        <a class="btn" href="/llm-workflows/">How I build with LLMs</a>
+        <a class="btn" href="#contact">Get in touch</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="projects">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Projects</span>
+          <h2>Things I run every day</h2>
+        </div>
+        <p class="sub prose">
+          Each one is a real self-hosted app that I use daily. The demos here run each app's actual page code on invented data. Their live data comes from services licensed for personal use, so it isn't shown.
+        </p>
+      </div>
+      <div class="grid projects">
+        {projects.map((p) => <ProjectCard project={p} />)}
+      </div>
+
+      <a class="llm-teaser" href="/llm-workflows/">
+        <div>
+          <span class="eyebrow">LLM workflows</span>
+          <h3>Scheduled agents that are cheap and don't make mistakes</h3>
+          <p class="sub">
+            Three MCP servers I wrote, for Substack, Medium and Spotify, plus the Hermes skills and cron jobs that use them. They produce a daily reading digest and a playlist twice a week.
+            Moving the bookkeeping out of the prompt and into code cut the Medium digest from <strong>$3.26 to $0.27</strong> a run.
+            The Substack digest and the playlist now run entirely on a local model.
+          </p>
+          <span class="go">Step through a real run →</span>
+        </div>
+        <img src="/images/digest-run.png" alt="Diagram: in a digest run the model only judges, and the server handles fetching, ranking, refs, layout and state." width="1400" height="560" loading="lazy" />
+      </a>
+    </div>
+  </section>
+
+  <section class="block" id="skills">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Skills</span>
+          <h2>What I bring</h2>
+        </div>
+      </div>
+      <div class="grid skills">
+        {skills.map((s) => (
+          <div class="card">
+            <h3>{s.data.group}</h3>
+            <ul class="chips">{s.data.items.map((i) => <li>{i}</li>)}</ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="experience">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Experience</span>
+          <h2>Where I've worked</h2>
+        </div>
+      </div>
+      <ol class="timeline">
+        {jobs.map((j) => (
+          <li class:list={['job', { draft: dev && j.draft }]}>
+            <div class="when">{j.start}–{j.end ?? 'present'}</div>
+            <div>
+              <h3>{j.role} <span class="org">· {j.org}</span></h3>
+              {j.location && <p class="muted loc">{j.location}</p>}
+              <div class="prose sub"><j.Content /></div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <p class="muted"><span class="eyebrow">Education</span>Rose-Hulman Institute of Technology</p>
+    </div>
+  </section>
+
+  <section class="block" id="also">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Also built</span>
+          <h2>Smaller tools</h2>
+        </div>
+        <a class="btn" href={SITE.github}>Everything on GitHub →</a>
+      </div>
+      <div class="grid also">
+        {alsoBuilt.map((r) => (
+          <a class="card also-card" href={r.data.repo}>
+            <h3>{r.data.name}</h3>
+            <p class="sub">{r.data.blurb}</p>
+            <ul class="chips">{r.data.tags.map((t) => <li>{t}</li>)}</ul>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="hobbies">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Off the clock</span>
+          <h2>Hobbies that turn into projects</h2>
+        </div>
+      </div>
+      <div class="grid hobbies">
+        {hobbies.map((h) => (
+          <div class="card">
+            <h3>{h.title}</h3>
+            <p class="sub">{h.body}</p>
+            {h.link && <a href={h.link.href}>{h.link.label} →</a>}
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="contact">
+    <div class="wrap">
+      <span class="eyebrow">Contact</span>
+      <h2>Let's talk</h2>
+      <p class="lede">Hiring for architecture, AWS, Java, or agent and LLM engineering? Or just curious how something here works? Send me an email.</p>
+      <Contact />
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero { padding: clamp(4rem, 12vw, 8rem) 0 clamp(3rem, 8vw, 5rem); background:
+    radial-gradient(60rem 30rem at 85% -10%, var(--wash), transparent 70%); }
+  .hero h1 { margin-bottom: 1.2rem; }
+  .dot { color: var(--signal); }
+  .facts { list-style: none; padding: 0; margin: 2rem 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; max-width: 56rem; }
+  .facts li { border-left: 2px solid var(--signal); padding: .2rem 0 .2rem .9rem; color: var(--sub); font-size: .95rem; }
+  .facts strong { display: block; color: var(--ink); font-size: 1.15rem; font-stretch: 90%; }
+  .cta { display: flex; flex-wrap: wrap; gap: .7rem; }
+
+  .projects { grid-template-columns: repeat(auto-fill, minmax(min(100%, 31rem), 1fr)); }
+  .section-head .prose { margin: 0; max-width: 46ch; font-size: .95rem; }
+
+  .llm-teaser { margin-top: 1.4rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 1.6rem; align-items: center;
+    text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.6rem; }
+  .llm-teaser:hover { border-color: var(--line-strong); }
+  .llm-teaser h3 { font-size: 1.45rem; font-stretch: 85%; }
+  .llm-teaser img { border-radius: var(--radius-s); background: #fff; }
+  .llm-teaser .go { color: var(--signal); font-weight: 650; }
+  @media (max-width: 860px) { .llm-teaser { grid-template-columns: 1fr; } }
+
+  .skills { grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); }
+  .skills h3 { font-size: 1rem; margin-bottom: .8rem; }
+
+  .timeline { list-style: none; padding: 0; margin: 0 0 2rem; display: grid; gap: 2rem; }
+  .job { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1.2rem; }
+  .job.draft { outline: 1px dashed var(--signal); outline-offset: 8px; }
+  .job.draft::before { content: 'draft: pending career interview'; position: absolute; transform: translateY(-1.6rem); font-size: .7rem; color: var(--signal); }
+  .when { font-stretch: 85%; font-weight: 650; color: var(--signal); padding-top: .15rem; }
+  .org { font-weight: 400; color: var(--sub); }
+  .loc { margin: -.3rem 0 .6rem; font-size: .9rem; }
+  .job :global(ul) { padding-left: 1.1rem; margin: 0; }
+  .job :global(li) { margin-bottom: .4rem; }
+  @media (max-width: 620px) { .job { grid-template-columns: 1fr; gap: .3rem; } }
+
+  .also { grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); }
+  .also-card { text-decoration: none; display: grid; gap: .5rem; align-content: start; }
+  .also-card:hover { border-color: var(--line-strong); }
+  .also-card h3 { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 1rem; }
+  .also-card p { margin: 0; font-size: .92rem; }
+
+  .hobbies { grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+  .hobbies p { font-size: .95rem; }
+</style>

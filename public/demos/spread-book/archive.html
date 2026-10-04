@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<head>
+<script>window.__DEMO__={"name":"spread-book","project":"spread-book","allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report archive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<script>
+  try { if (localStorage.getItem("optionspread.theme") === "light") document.documentElement.setAttribute("data-theme", "light"); } catch (e) {}
+</script>
+<script>// Palette switcher (the swatch button in the lower left). Ported from equity-watch.
+//
+// The page's stylesheet reads exactly three custom properties off <html>:
+// --p-ground (the background in dark mode), --p-ink (the text in dark mode)
+// and --p-signal (the one accent). Every other colour is mixed from those
+// three, and light mode swaps ground and ink, so a palette is a complete theme.
+//
+// The page declares the default with data-palette="ground,ink,signal" on
+// <html>. A chosen palette is remembered per browser. Loaded in <head>, before
+// first paint, so the page never flashes another palette.
+
+(() => {
+  "use strict";
+  const KEY = "optionspread.palette";
+  const root = document.documentElement;
+
+  const PRESETS = [
+    { name: "Petrol and sodium", colors: ["#0e2a31", "#ece4d0", "#f3a83b"] },
+    { name: "Walnut and cyan", colors: ["#241a12", "#f2e8d3", "#57c7f5"] },
+    { name: "Oxblood and brass", colors: ["#2b1016", "#f1e2de", "#e6c160"] },
+    { name: "Moss and coral", colors: ["#15201a", "#e2ecdc", "#ff8a66"] },
+    { name: "Ink and violet", colors: ["#15162b", "#e6e4f5", "#b69bff"] },
+    { name: "Carbon and signal red", colors: ["#1a1b1d", "#ecebe6", "#ff5a4e"] },
+  ];
+
+  const pageDefault = (root.dataset.palette ?? "").split(",").filter(Boolean);
+  const defaults = pageDefault.length === 3 ? pageDefault : PRESETS[0].colors;
+
+  function read() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? "null");
+      if (Array.isArray(saved) && saved.length === 3) return saved;
+    } catch {
+      /* fall through to the default */
+    }
+    return defaults;
+  }
+
+  function apply(colors) {
+    const [ground, ink, signal] = colors;
+    root.style.setProperty("--p-ground", ground);
+    root.style.setProperty("--p-ink", ink);
+    root.style.setProperty("--p-signal", signal);
+  }
+
+  function save(colors) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(colors));
+    } catch {
+      /* the choice just won't persist */
+    }
+  }
+
+  // Before first paint, so the page never flashes another palette.
+  let colors = read();
+  apply(colors);
+
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "text") node.textContent = v;
+      else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v);
+    }
+    node.append(...children);
+    return node;
+  }
+
+  function buildPanel() {
+    const inputs = ["Background", "Text", "Accent"].map((label, i) => {
+      const id = `pal-${i}`;
+      const input = el("input", { type: "color", id, value: colors[i] });
+      input.addEventListener("input", () => {
+        colors = colors.map((c, j) => (j === i ? input.value : c));
+        apply(colors);
+        save(colors);
+        code.textContent = colors.join(", ");
+      });
+      return { input, row: el("div", { class: "pal-field" }, input, el("label", { for: id, text: label })) };
+    });
+    const sync = () => inputs.forEach(({ input }, i) => (input.value = colors[i]));
+    const code = el("code", { class: "pal-code", text: colors.join(", ") });
+
+    const presets = el(
+      "div",
+      { class: "pal-presets" },
+      ...PRESETS.map((p) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: "pal-preset",
+            title: p.name,
+            "aria-label": `Use ${p.name}`,
+            onclick: () => {
+              colors = [...p.colors];
+              apply(colors);
+              save(colors);
+              sync();
+              code.textContent = colors.join(", ");
+            },
+          },
+          ...p.colors.map((c) => el("span", { style: `background:${c}` }))
+        )
+      )
+    );
+
+    const reset = el("button", {
+      type: "button",
+      text: "Reset to this design's default",
+      class: "pal-reset",
+      onclick: () => {
+        colors = [...defaults];
+        apply(colors);
+        try {
+          localStorage.removeItem(KEY);
+        } catch {
+          /* nothing saved */
+        }
+        sync();
+        code.textContent = colors.join(", ");
+      },
+    });
+
+    const panel = el(
+      "div",
+      { class: "pal-panel", id: "pal-panel", role: "dialog", "aria-label": "Palette", hidden: "" },
+      el("div", { class: "pal-heading", text: "Palette" }),
+      presets,
+      ...inputs.map((x) => x.row),
+      code,
+      reset
+    );
+    const toggle = el("button", {
+      type: "button",
+      class: "pal-toggle",
+      "aria-expanded": "false",
+      "aria-controls": "pal-panel",
+      "aria-label": "Palette",
+      onclick: () => {
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute("aria-expanded", String(!panel.hidden));
+      },
+    });
+    toggle.append(...[0, 1, 2].map((i) => el("span", { style: `background:var(--p-${["ground", "ink", "signal"][i]})` })));
+    const box = el("div", { class: "pal" }, panel, toggle);
+    const close = () => {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    };
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !panel.hidden) close();
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (!panel.hidden && !box.contains(e.target)) close();
+    });
+    document.body.append(box);
+  }
+
+  document.addEventListener("DOMContentLoaded", buildPanel);
+})();
+</script>
+<style>
+/*
+ * Shared theme for the generated pages (portfolio report and archive).
+ *
+ * Same engine as equity-watch: palette.js sets three inputs on <html>
+ * (--p-ground, --p-ink, --p-signal) and every other colour is mixed from
+ * them. Light mode swaps ground and ink and pulls the signal toward the new
+ * ground so it holds contrast.
+ *
+ * The signal means "wants attention": an exit rule that has fired, the
+ * greek being shown, a trial trade. Symbols and chrome stay in ink.
+ */
+:root { --ground: var(--p-ground); --ink: var(--p-ink); --signal: var(--p-signal); color-scheme: dark; }
+:root[data-theme="light"] {
+  --ground: var(--p-ink); --ink: var(--p-ground);
+  --signal: color-mix(in oklab, var(--p-signal) 72%, var(--p-ground)); color-scheme: light;
+}
+:root {
+  --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+  --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+  --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+  --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+  --muted: color-mix(in oklab, var(--ink) 50%, var(--ground));
+  --sub: color-mix(in oklab, var(--ink) 72%, var(--ground));
+  --wash: color-mix(in oklab, var(--signal) 13%, var(--ground));
+  --on-signal: var(--ground);
+  --radius-s: 4px; --radius-m: 10px;
+  --shadow: 0 18px 48px color-mix(in oklab, black 45%, transparent);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { font-size: 15px; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: 'Archivo', system-ui, sans-serif; font-stretch: 100%;
+  line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--ink); }
+button {
+  font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--ink); cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.35rem 0.7rem;
+}
+button:hover { border-color: var(--line-strong); }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.muted { color: var(--muted); }
+.btn-signal { background: var(--signal); color: var(--on-signal); border-color: transparent; font-weight: 650; }
+
+/* ---- header -------------------------------------------------------- */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.25rem;
+  padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 1rem; font-weight: 800; font-stretch: 125%; letter-spacing: 0.01em; margin: 0; }
+.brand a { text-decoration: none; }
+.top .spacer { flex: 1; }
+.top nav a { color: var(--sub); font-size: 0.86rem; }
+.wrap { max-width: 1380px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+.section-title { margin: 0; font-size: 1.7rem; font-weight: 600; font-stretch: 75%; letter-spacing: -0.005em; line-height: 1.1; }
+
+/* ---- palette control (palette.js) ---------------------------------- */
+.pal { position: fixed; left: 1.4rem; bottom: 1.2rem; z-index: 30; }
+.pal-toggle { display: flex; gap: 0; padding: 3px; border-radius: 999px; background: var(--raised); }
+.pal-toggle span, .pal-preset span { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+.pal-toggle span + span { margin-left: -4px; }
+.pal-panel {
+  position: absolute; left: 0; bottom: calc(100% + 8px); width: 15rem; padding: 0.9rem; display: grid; gap: 0.55rem;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); font-size: 0.82rem;
+}
+.pal-panel[hidden] { display: none; }
+.pal-heading { font-weight: 650; font-stretch: 85%; font-size: 0.95rem; }
+.pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pal-preset { display: flex; justify-content: center; padding: 6px 4px; }
+.pal-preset span + span { margin-left: -4px; }
+.pal-field { display: flex; align-items: center; gap: 0.6rem; }
+.pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+.pal-code { font-size: 0.75rem; color: var(--sub); user-select: all; }
+.pal-reset { font-size: 0.75rem; }
+
+@media (max-width: 720px) {
+  .top, .wrap { padding-left: 1rem; padding-right: 1rem; }
+}
+
+  .wrap { max-width: 48rem; padding-top: 2rem; }
+  .section-title { margin-bottom: 1.25rem; }
+  details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); margin-bottom: 0.6rem; }
+  summary { padding: 0.7rem 1rem; cursor: pointer; font-weight: 600; font-stretch: 85%; }
+  summary .muted { font-weight: 450; margin-left: 0.4rem; font-size: 0.86rem; }
+  ul { list-style: none; margin: 0; padding: 0 1rem 0.6rem; }
+  li { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; align-items: baseline; padding: 0.45rem 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
+  li span { flex: 1; min-width: 12rem; color: var(--sub); font-stretch: 90%; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1 class="brand"><a href="index.html">Spread book</a></h1>
+  <span class="spacer"></span>
+  <nav><a href="index.html">Latest report</a></nav>
+</header>
+<main class="wrap">
+  <h2 class="section-title">Report archive</h2>
+  <details open>
+    <summary>Week of Sep 28, 2026 <span class="muted">1 report</span></summary>
+    <ul>
+        <li><span>Sun, Oct 4, 10:30 AM MDT</span><a href="demo-book-2026-10-04_10-30-portfolio.html">Spread book</a></li>
+    </ul>
+  </details>
+</main>
+</body>
+</html>

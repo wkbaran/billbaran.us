@@ -1,0 +1,58 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC -> AWS deploy role, no stored keys
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci
+
+      # Generic patterns only here; .sanitize-patterns is never committed.
+      - name: Check nothing personal is published
+        run: node scripts/check-sanitized.ts public src scripts infra .github
+
+      - run: npx astro check
+
+      - run: npx astro build
+
+      - name: Check the built site
+        run: node scripts/check-sanitized.ts dist
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # Hashed assets are immutable; everything else revalidates.
+      - name: Upload
+        run: |
+          aws s3 sync dist/_astro "s3://${{ vars.SITE_BUCKET }}/_astro" \
+            --cache-control "public, max-age=31536000, immutable" --delete
+          aws s3 sync dist "s3://${{ vars.SITE_BUCKET }}" --exclude "_astro/*" \
+            --cache-control "public, max-age=300, must-revalidate" --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.SITE_DISTRIBUTION_ID }}" --paths "/*" \
+            --query Invalidation.Id --output text

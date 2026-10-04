@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<head>
+<script>window.__DEMO__={"name":"spread-book","project":"spread-book","allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spread book</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='12' y='12' width='34' height='34' rx='6' fill='%23f3a83b'/><rect x='54' y='54' width='34' height='34' rx='6' fill='%23f3a83b'/><rect x='54' y='12' width='34' height='34' rx='6' fill='%23f3a83b' opacity='.45'/><rect x='12' y='54' width='34' height='34' rx='6' fill='%23f3a83b' opacity='.45'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<script>
+  try { if (localStorage.getItem("optionspread.theme") === "light") document.documentElement.setAttribute("data-theme", "light"); } catch (e) {}
+</script>
+<script>// Palette switcher (the swatch button in the lower left). Ported from equity-watch.
+//
+// The page's stylesheet reads exactly three custom properties off <html>:
+// --p-ground (the background in dark mode), --p-ink (the text in dark mode)
+// and --p-signal (the one accent). Every other colour is mixed from those
+// three, and light mode swaps ground and ink, so a palette is a complete theme.
+//
+// The page declares the default with data-palette="ground,ink,signal" on
+// <html>. A chosen palette is remembered per browser. Loaded in <head>, before
+// first paint, so the page never flashes another palette.
+
+(() => {
+  "use strict";
+  const KEY = "optionspread.palette";
+  const root = document.documentElement;
+
+  const PRESETS = [
+    { name: "Petrol and sodium", colors: ["#0e2a31", "#ece4d0", "#f3a83b"] },
+    { name: "Walnut and cyan", colors: ["#241a12", "#f2e8d3", "#57c7f5"] },
+    { name: "Oxblood and brass", colors: ["#2b1016", "#f1e2de", "#e6c160"] },
+    { name: "Moss and coral", colors: ["#15201a", "#e2ecdc", "#ff8a66"] },
+    { name: "Ink and violet", colors: ["#15162b", "#e6e4f5", "#b69bff"] },
+    { name: "Carbon and signal red", colors: ["#1a1b1d", "#ecebe6", "#ff5a4e"] },
+  ];
+
+  const pageDefault = (root.dataset.palette ?? "").split(",").filter(Boolean);
+  const defaults = pageDefault.length === 3 ? pageDefault : PRESETS[0].colors;
+
+  function read() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? "null");
+      if (Array.isArray(saved) && saved.length === 3) return saved;
+    } catch {
+      /* fall through to the default */
+    }
+    return defaults;
+  }
+
+  function apply(colors) {
+    const [ground, ink, signal] = colors;
+    root.style.setProperty("--p-ground", ground);
+    root.style.setProperty("--p-ink", ink);
+    root.style.setProperty("--p-signal", signal);
+  }
+
+  function save(colors) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(colors));
+    } catch {
+      /* the choice just won't persist */
+    }
+  }
+
+  // Before first paint, so the page never flashes another palette.
+  let colors = read();
+  apply(colors);
+
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "text") node.textContent = v;
+      else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v);
+    }
+    node.append(...children);
+    return node;
+  }
+
+  function buildPanel() {
+    const inputs = ["Background", "Text", "Accent"].map((label, i) => {
+      const id = `pal-${i}`;
+      const input = el("input", { type: "color", id, value: colors[i] });
+      input.addEventListener("input", () => {
+        colors = colors.map((c, j) => (j === i ? input.value : c));
+        apply(colors);
+        save(colors);
+        code.textContent = colors.join(", ");
+      });
+      return { input, row: el("div", { class: "pal-field" }, input, el("label", { for: id, text: label })) };
+    });
+    const sync = () => inputs.forEach(({ input }, i) => (input.value = colors[i]));
+    const code = el("code", { class: "pal-code", text: colors.join(", ") });
+
+    const presets = el(
+      "div",
+      { class: "pal-presets" },
+      ...PRESETS.map((p) =>
+        el(
+          "button",
+          {
+            type: "button",
+            class: "pal-preset",
+            title: p.name,
+            "aria-label": `Use ${p.name}`,
+            onclick: () => {
+              colors = [...p.colors];
+              apply(colors);
+              save(colors);
+              sync();
+              code.textContent = colors.join(", ");
+            },
+          },
+          ...p.colors.map((c) => el("span", { style: `background:${c}` }))
+        )
+      )
+    );
+
+    const reset = el("button", {
+      type: "button",
+      text: "Reset to this design's default",
+      class: "pal-reset",
+      onclick: () => {
+        colors = [...defaults];
+        apply(colors);
+        try {
+          localStorage.removeItem(KEY);
+        } catch {
+          /* nothing saved */
+        }
+        sync();
+        code.textContent = colors.join(", ");
+      },
+    });
+
+    const panel = el(
+      "div",
+      { class: "pal-panel", id: "pal-panel", role: "dialog", "aria-label": "Palette", hidden: "" },
+      el("div", { class: "pal-heading", text: "Palette" }),
+      presets,
+      ...inputs.map((x) => x.row),
+      code,
+      reset
+    );
+    const toggle = el("button", {
+      type: "button",
+      class: "pal-toggle",
+      "aria-expanded": "false",
+      "aria-controls": "pal-panel",
+      "aria-label": "Palette",
+      onclick: () => {
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute("aria-expanded", String(!panel.hidden));
+      },
+    });
+    toggle.append(...[0, 1, 2].map((i) => el("span", { style: `background:var(--p-${["ground", "ink", "signal"][i]})` })));
+    const box = el("div", { class: "pal" }, panel, toggle);
+    const close = () => {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    };
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !panel.hidden) close();
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (!panel.hidden && !box.contains(e.target)) close();
+    });
+    document.body.append(box);
+  }
+
+  document.addEventListener("DOMContentLoaded", buildPanel);
+})();
+</script>
+<style>
+/*
+ * Shared theme for the generated pages (portfolio report and archive).
+ *
+ * Same engine as equity-watch: palette.js sets three inputs on <html>
+ * (--p-ground, --p-ink, --p-signal) and every other colour is mixed from
+ * them. Light mode swaps ground and ink and pulls the signal toward the new
+ * ground so it holds contrast.
+ *
+ * The signal means "wants attention": an exit rule that has fired, the
+ * greek being shown, a trial trade. Symbols and chrome stay in ink.
+ */
+:root { --ground: var(--p-ground); --ink: var(--p-ink); --signal: var(--p-signal); color-scheme: dark; }
+:root[data-theme="light"] {
+  --ground: var(--p-ink); --ink: var(--p-ground);
+  --signal: color-mix(in oklab, var(--p-signal) 72%, var(--p-ground)); color-scheme: light;
+}
+:root {
+  --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+  --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+  --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+  --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+  --muted: color-mix(in oklab, var(--ink) 50%, var(--ground));
+  --sub: color-mix(in oklab, var(--ink) 72%, var(--ground));
+  --wash: color-mix(in oklab, var(--signal) 13%, var(--ground));
+  --on-signal: var(--ground);
+  --radius-s: 4px; --radius-m: 10px;
+  --shadow: 0 18px 48px color-mix(in oklab, black 45%, transparent);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { font-size: 15px; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: 'Archivo', system-ui, sans-serif; font-stretch: 100%;
+  line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--ink); }
+button {
+  font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--ink); cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.35rem 0.7rem;
+}
+button:hover { border-color: var(--line-strong); }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.muted { color: var(--muted); }
+.btn-signal { background: var(--signal); color: var(--on-signal); border-color: transparent; font-weight: 650; }
+
+/* ---- header -------------------------------------------------------- */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1.25rem;
+  padding: 0.9rem 1.5rem; border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 1rem; font-weight: 800; font-stretch: 125%; letter-spacing: 0.01em; margin: 0; }
+.brand a { text-decoration: none; }
+.top .spacer { flex: 1; }
+.top nav a { color: var(--sub); font-size: 0.86rem; }
+.wrap { max-width: 1380px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+.section-title { margin: 0; font-size: 1.7rem; font-weight: 600; font-stretch: 75%; letter-spacing: -0.005em; line-height: 1.1; }
+
+/* ---- palette control (palette.js) ---------------------------------- */
+.pal { position: fixed; left: 1.4rem; bottom: 1.2rem; z-index: 30; }
+.pal-toggle { display: flex; gap: 0; padding: 3px; border-radius: 999px; background: var(--raised); }
+.pal-toggle span, .pal-preset span { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+.pal-toggle span + span { margin-left: -4px; }
+.pal-panel {
+  position: absolute; left: 0; bottom: calc(100% + 8px); width: 15rem; padding: 0.9rem; display: grid; gap: 0.55rem;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); font-size: 0.82rem;
+}
+.pal-panel[hidden] { display: none; }
+.pal-heading { font-weight: 650; font-stretch: 85%; font-size: 0.95rem; }
+.pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pal-preset { display: flex; justify-content: center; padding: 6px 4px; }
+.pal-preset span + span { margin-left: -4px; }
+.pal-field { display: flex; align-items: center; gap: 0.6rem; }
+.pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+.pal-code { font-size: 0.75rem; color: var(--sub); user-select: all; }
+.pal-reset { font-size: 0.75rem; }
+
+@media (max-width: 720px) {
+  .top, .wrap { padding-left: 1rem; padding-right: 1rem; }
+}
+
+/*
+ * Portfolio report ("Spread book"). Layout only; colours come from theme.css.
+ *
+ * One screen instead of stacked tables: the four book totals double as the
+ * switch for a single heatmap, decisions come before analysis, and clicking
+ * any cell, dot or row opens that spread on the right.
+ */
+.snap { color: var(--sub); font-size: 0.86rem; display: flex; align-items: center; gap: 0.45rem; }
+.snap select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.2rem 0.4rem; }
+.snap-status { color: var(--muted); font-size: 0.8rem; }
+.snap-status.error { color: var(--signal); }
+
+/* ---- what-if panel -------------------------------------------------- */
+.whatif { margin-top: 1rem; padding: 1rem 1.1rem; background: var(--wash); border: 1px solid color-mix(in oklab, var(--signal) 40%, var(--ground)); border-radius: var(--radius-m); }
+.whatif[hidden] { display: none; }
+.whatif h2 { margin: 0 0 0.2rem; font-size: 1.05rem; font-weight: 650; font-stretch: 85%; }
+.whatif p { margin: 0 0 0.6rem; color: var(--sub); font-size: 0.85rem; }
+.whatif-row { display: flex; gap: 0.6rem; align-items: stretch; }
+.whatif textarea {
+  flex: 1; min-height: 2.6rem; resize: vertical; font: inherit; font-size: 0.82rem; font-stretch: 85%;
+  color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0.45rem 0.6rem;
+}
+.whatif .error { margin: 0.5rem 0 0; color: var(--signal); font-size: 0.84rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.chips:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0.3rem 0.15rem 0.65rem; border-radius: 999px; background: var(--ground); border: 1px dashed var(--signal); font-size: 0.8rem; }
+.chip button { padding: 0 0.4rem; border: 0; background: transparent; font-size: 0.95rem; line-height: 1.2; }
+
+/* ---- book strip: totals that switch the grid ------------------------ */
+.book { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; }
+.greek {
+  all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 0.1rem; align-content: start;
+  padding: 0.95rem 1.1rem 1rem; background: var(--surface); position: relative;
+}
+.greek + .greek { border-left: 1px solid var(--line); }
+.greek:hover { background: var(--raised); }
+.greek:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+.greek[aria-pressed="true"] { background: var(--ground); }
+.greek[aria-pressed="true"]::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--signal); }
+.greek .g-name { font-size: 0.95rem; font-weight: 600; font-stretch: 80%; color: var(--sub); }
+.greek[aria-pressed="true"] .g-name { color: var(--ink); }
+.greek .g-val { font-size: 3.1rem; line-height: 1; font-weight: 220; font-stretch: 62%; letter-spacing: -0.02em; }
+.greek[aria-pressed="true"] .g-val { color: var(--signal); font-weight: 330; }
+.greek .g-diff { font-size: 0.95rem; font-stretch: 75%; font-weight: 500; color: var(--signal); margin-left: 0.35rem; letter-spacing: 0; }
+.greek .g-help { font-size: 0.78rem; color: var(--muted); line-height: 1.35; }
+
+/* ---- decisions ------------------------------------------------------ */
+.decide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 1.25rem; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; }
+.decide section { background: var(--ground); padding: 0.85rem 1.1rem 1rem; min-width: 0; }
+.decide h2 { margin: 0; font-size: 1rem; font-weight: 650; font-stretch: 85%; }
+.decide .d-help { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.78rem; }
+.decide ul { list-style: none; margin: 0; padding: 0; }
+.decide li button {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 3.4rem 1fr auto; gap: 0.6rem; align-items: baseline;
+  padding: 0.3rem 0.4rem; margin: 0 -0.4rem; border-radius: var(--radius-s); font-size: 0.86rem;
+}
+.decide li button:hover, .decide li button:focus-visible { background: var(--raised); outline: none; }
+.decide .sym { font-weight: 750; font-stretch: 112%; }
+.decide .d-what { color: var(--sub); font-size: 0.82rem; }
+.decide .d-num { font-stretch: 75%; font-size: 1.05rem; }
+.decide .d-num.hot { color: var(--signal); font-weight: 600; }
+.decide .empty { color: var(--muted); font-size: 0.84rem; margin: 0; }
+
+/* ---- main split: grid + detail ------------------------------------- */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.5rem; margin-top: 2rem; align-items: start; }
+.section-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem 1rem; margin-bottom: 0.6rem; }
+.section-note { color: var(--sub); font-size: 0.85rem; max-width: 60ch; margin: 0 0 0.8rem; }
+.section-head .section-note { margin: 0; }
+.legend { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.76rem; color: var(--muted); }
+.legend i { display: block; width: 7rem; height: 0.55rem; border-radius: 2px; }
+
+table { border-collapse: collapse; width: 100%; }
+.heat { font-size: 0.86rem; }
+.heat th, .heat td { padding: 0; }
+.heat thead th { font-weight: 500; font-stretch: 85%; color: var(--muted); font-size: 0.78rem; text-align: center; padding: 0 0 0.35rem; }
+.heat thead th .dte { display: block; color: var(--sub); font-size: 0.95rem; font-weight: 600; }
+.heat thead th:first-child { text-align: left; }
+.heat tbody th { text-align: left; font-weight: 750; font-stretch: 112%; padding: 0 0.8rem 0 0; white-space: nowrap; width: 6rem; }
+.heat tbody th small { font-weight: 450; font-stretch: 85%; color: var(--muted); margin-left: 0.3rem; font-size: 0.78rem; }
+.heat td { border: 2px solid var(--ground); }
+.cell {
+  all: unset; box-sizing: border-box; display: block; width: 100%; min-height: 2rem; padding: 0.3rem 0.55rem; text-align: right;
+  font-stretch: 80%; cursor: pointer; border-radius: 3px;
+}
+.cell.none { cursor: default; }
+.cell:focus-visible, .cell.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+.cell.hypo { outline: 2px dashed var(--signal); outline-offset: -3px; }
+.heat .tot { text-align: right; padding: 0.3rem 0.55rem; font-stretch: 80%; font-weight: 650; }
+.heat tfoot td, .heat tfoot th { border-top: 1px solid var(--line-strong); padding-top: 0.45rem; }
+.heat tfoot th { font-weight: 600; font-stretch: 85%; color: var(--sub); }
+
+/* ---- detail --------------------------------------------------------- */
+.detail { position: sticky; top: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.1rem 1.2rem 1.2rem; }
+.detail h3 { margin: 0; font-size: 1.45rem; font-weight: 750; font-stretch: 112%; line-height: 1.1; }
+.detail .d-sub { color: var(--sub); font-size: 0.88rem; margin-top: 0.15rem; }
+.detail .also { margin-top: 0.5rem; font-size: 0.82rem; color: var(--muted); }
+.detail .also button { padding: 0.1rem 0.45rem; font-size: 0.78rem; margin-left: 0.25rem; }
+.progress { margin-top: 1.1rem; }
+.progress .p-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.progress .p-val { font-size: 2.6rem; line-height: 1; font-weight: 250; font-stretch: 62%; letter-spacing: -0.02em; }
+.progress .p-val.hot { color: var(--signal); font-weight: 350; }
+.progress .p-lbl { color: var(--sub); font-size: 0.8rem; text-align: right; max-width: 11rem; line-height: 1.3; }
+/* The bar runs from the stop (25% of max loss) through zero to the close (50% of max profit). */
+.bar { position: relative; height: 0.6rem; margin-top: 0.6rem; background: var(--raised); border-radius: 999px; }
+.bar::before, .bar::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: 1.5px; background: var(--ink); }
+.bar::before { left: 0; }
+.bar::after { right: 0; }
+.bar .zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--line-strong); }
+.bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.bar .fill.up { background: var(--ink); }
+.bar .fill.down { background: var(--signal); }
+.bar-scale { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; font-stretch: 85%; }
+dl.kv { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 1rem; margin: 1.2rem 0 0; font-size: 0.88rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; font-stretch: 85%; }
+dl.kv .rank { color: var(--muted); font-size: 0.78rem; margin-left: 0.4rem; }
+dl.kv .hot { color: var(--signal); font-weight: 600; }
+.detail h4 { margin: 1.3rem 0 0; font-size: 0.95rem; font-weight: 600; font-stretch: 80%; color: var(--sub); }
+
+/* ---- quality scatter ----------------------------------------------- */
+.quality { margin-top: 2.5rem; display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.5rem; align-items: start; }
+.plot { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 0.75rem; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+.plot text { fill: var(--muted); font-family: inherit; font-size: 11px; font-stretch: 85%; }
+.plot .lbl { fill: var(--ink); font-weight: 700; font-stretch: 100%; font-size: 11.5px; pointer-events: none; }
+.plot .dot { fill: var(--ink); cursor: pointer; }
+.plot .dot.weak { fill: var(--signal); }
+.plot .dot.sel { stroke: var(--ink); stroke-width: 2; paint-order: stroke; }
+.plot .dot.hypo { fill: none; stroke: var(--signal); stroke-width: 2; stroke-dasharray: 3 2; }
+.plot .dot:focus-visible { outline: none; stroke: var(--signal); stroke-width: 3; }
+.plot .zone { fill: var(--wash); }
+.plot .axis { stroke: var(--line-strong); }
+.plot .med { stroke: var(--line-strong); stroke-dasharray: 3 4; }
+.plot-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--muted); }
+.q-notes { font-size: 0.86rem; color: var(--sub); }
+.q-notes p { margin: 0 0 0.7rem; }
+.q-notes strong { color: var(--ink); font-weight: 650; }
+
+/* ---- scorecard ------------------------------------------------------ */
+.scorecard { margin-top: 2.5rem; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-m); }
+.sc { font-size: 0.85rem; white-space: nowrap; }
+.sc th, .sc td { padding: 0.5rem 0.75rem; text-align: right; }
+.sc thead th { position: sticky; top: 0; background: var(--raised); font-weight: 600; font-stretch: 85%; color: var(--sub); }
+.sc thead th button { all: unset; cursor: pointer; }
+.sc thead th button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.sc thead th[aria-sort] button { color: var(--ink); }
+.sc thead th[aria-sort="ascending"] button::after { content: " ↑"; }
+.sc thead th[aria-sort="descending"] button::after { content: " ↓"; }
+.sc th:first-child, .sc th:nth-child(2), .sc td:first-child, .sc td:nth-child(2) { text-align: left; }
+.sc tbody tr { border-top: 1px solid var(--line); cursor: pointer; }
+.sc tbody tr:hover { background: var(--surface); }
+.sc tbody tr.sel { background: var(--raised); }
+.sc tbody tr.hypo td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+.sc tfoot td { border-top: 1px solid var(--line-strong); font-weight: 650; font-stretch: 85%; }
+.sc tfoot .avg { color: var(--muted); font-weight: 450; margin-left: 0.25rem; }
+.sc .sym { font-weight: 750; font-stretch: 112%; }
+.sc .kind { color: var(--sub); }
+.sc .tag { margin-left: 0.4rem; font-size: 0.75rem; color: var(--muted); }
+.sc .num { font-stretch: 85%; }
+.sc .hot { color: var(--signal); font-weight: 600; }
+.mini { display: inline-block; vertical-align: middle; width: 5.5rem; margin-left: 0.5rem; }
+.mini .bar { height: 0.4rem; margin: 0; }
+
+.guide { margin-top: 1rem; font-size: 0.86rem; color: var(--sub); max-width: 70rem; }
+.guide summary { cursor: pointer; color: var(--ink); font-weight: 600; font-stretch: 85%; }
+.guide dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1.5rem; margin: 0.8rem 0 0; }
+.guide dt { color: var(--ink); font-weight: 600; font-stretch: 85%; }
+.guide dd { margin: 0; max-width: 72ch; }
+
+@media (max-width: 1100px) {
+  .decide { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 1040px) {
+  .split, .quality { grid-template-columns: 1fr; }
+  .detail { position: static; }
+}
+@media (max-width: 720px) {
+  .book { grid-template-columns: repeat(2, 1fr); }
+  .greek:nth-child(3) { border-left: 0; }
+  .greek:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .greek .g-val { font-size: 2.4rem; }
+  .decide { grid-template-columns: 1fr; }
+  .heat-scroll { overflow-x: auto; }
+  .legend { margin-left: 0; }
+  .guide dl { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cell { transition: background-color 180ms ease, color 180ms ease; }
+}
+
+</style>
+</head>
+<body data-base="demo-book-2026-10-04_10-30">
+<header class="top">
+  <h1 class="brand"><a href="index.html">Spread book</a></h1>
+  <label class="snap">Snapshot <select id="snapshot"></select></label>
+  <span class="snap-status" id="snap-status" role="status"></span>
+  <span class="spacer"></span>
+  <nav><a href="archive.html">Archive</a></nav>
+  <button id="theme-btn" type="button">Light mode</button>
+  <button id="whatif-btn" type="button" class="btn-signal" aria-expanded="false" aria-controls="whatif">Try a trade</button>
+</header>
+
+<main class="wrap">
+  <section class="whatif" id="whatif" hidden>
+    <h2>Try a trade before you place it</h2>
+    <p>Paste a row from the OptionStrat export, or several rows copied from Excel. Each trade is added to every total, the grid and the scorecard with a dashed outline, so you can see what it changes.</p>
+    <div class="whatif-row">
+      <textarea id="whatif-text" aria-label="Spread rows from the OptionStrat export" spellcheck="false" placeholder="AAPL Jun 18th 180/185 Bull Put Spread,0%,$0,..."></textarea>
+      <button id="whatif-add" type="button" class="btn-signal">Add to book</button>
+    </div>
+    <p class="error" id="whatif-error" role="alert" hidden></p>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <div class="decide" id="decide"></div>
+
+  <div class="book" id="book" role="group" aria-label="Book totals. Choose one to show it in the grid."></div>
+
+  <div class="split">
+    <section>
+      <div class="section-head">
+        <h2 class="section-title" id="grid-title">Theta by underlying and expiration</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+      <p class="section-note" id="grid-note"></p>
+      <div class="heat-scroll"><table class="heat" id="heat"></table></div>
+    </section>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+
+  <section class="quality">
+    <div>
+      <div class="section-head">
+        <h2 class="section-title">What each spread pays for its risk</h2>
+      </div>
+      <div class="plot" id="plot"></div>
+    </div>
+    <div class="q-notes">
+      <p><strong>Right</strong> means more theta for each unit of gamma. These hold up better through a sharp move.</p>
+      <p><strong>Up</strong> means more theta for each unit of vega. These hold up better through an IV spike.</p>
+      <p>The shaded corner is below the median on both. Those spreads are the first to close when you want capital back.</p>
+    </div>
+  </section>
+
+  <section class="scorecard">
+    <div class="section-head">
+      <h2 class="section-title">Scorecard</h2>
+      <span class="section-note">Select a heading to sort. Gains count toward the close at 50% of max profit, losses toward the stop at 25% of max loss.</span>
+    </div>
+    <div class="table-scroll"><table class="sc" id="sc"></table></div>
+    <details class="guide">
+      <summary>What the columns mean</summary>
+      <dl>
+        <dt>Days</dt><dd>Days to expiration as of the snapshot. Highlighted at 21 or fewer, the window to close or roll before gamma speeds up.</dd>
+        <dt>PoP</dt><dd>OptionStrat's probability that both legs expire worthless and you keep the full credit.</dd>
+        <dt>EV</dt><dd><code>PoP × max profit − (1 − PoP) × max loss</code>. It treats the trade as all or nothing, so it's usually negative for credit spreads. Use it to compare positions, not as a signal on its own.</dd>
+        <dt>Toward an exit</dt><dd>A gain is shown as a share of max profit and counts toward the close at 50%. A loss is shown as a share of max loss and counts toward the stop at 25%. The bar's left end is the stop and its right end is the close.</dd>
+        <dt>Theta</dt><dd>Dollars earned per day from time decay, all else equal.</dd>
+        <dt>Delta</dt><dd>Direction. Bull puts are positive, bear calls negative.</dd>
+        <dt>Gamma</dt><dd>How fast delta moves against you. Negative for credit spreads, and largest near expiration and near the short strike.</dd>
+        <dt>Vega</dt><dd>Dollars lost per one-point rise in implied volatility.</dd>
+        <dt>IV</dt><dd>Implied volatility from the export.</dd>
+        <dt>Θ per Γ</dt><dd>Theta earned for each unit of gamma. Low values are the most exposed to a sharp move. Blank when gamma is zero.</dd>
+        <dt>Θ per V</dt><dd>Theta earned for each unit of vega. Low values are the first to close into a volatility spike.</dd>
+      </dl>
+    </details>
+  </section>
+</main>
+
+<script type="application/json" id="book-data">{"generatedAt":"2026-10-04T16:30:00.000Z","source":"demo-book-2026-10-04_10-30.csv","positions":[{"name":"SPY Oct 16th 520/530 Bull Put Spread","underlying":"SPY","expiration":"2026-10-16","type":"Bull Put","chance":0.8284999999999999,"credit":215.91,"maxProfit":215.91,"maxLoss":784.09,"ev":44.40999999999991,"returnPct":58,"theta":13.524253119,"vega":-1.259367549,"gamma":-0.023565738,"delta":8.089254856,"iv":19.41,"tgRatio":573.8947415523334,"tvRatio":10.738924573480494},{"name":"SPY Nov 20th 510/520 Bull Put Spread","underlying":"SPY","expiration":"2026-11-20","type":"Bull Put","chance":0.7368000000000001,"credit":187.08,"maxProfit":187.08,"maxLoss":812.92,"ev":-76.11999999999986,"returnPct":18,"theta":1.463247322,"vega":-2.996079342,"gamma":-0.001769899,"delta":8.468094468,"iv":27.89,"tgRatio":826.7405778521826,"tvRatio":0.4883873739549318},{"name":"QQQ Oct 30th 460/470 Bull Put Spread","underlying":"QQQ","expiration":"2026-10-30","type":"Bull Put","chance":0.7338,"credit":287.08,"maxProfit":287.08,"maxLoss":712.92,"ev":20.879999999999995,"returnPct":31,"theta":7.215563014,"vega":-0.791530029,"gamma":-0.004139041,"delta":7.015418086,"iv":34.79,"tgRatio":1743.2934377794274,"tvRatio":9.11596875625296},{"name":"QQQ Dec 18th 520/530 Bear Call Spread","underlying":"QQQ","expiration":"2026-12-18","type":"Bear Call","chance":0.6901,"credit":220.68,"maxProfit":220.68,"maxLoss":779.32,"ev":-89.21999999999997,"returnPct":-12,"theta":1.729037899,"vega":-2.386700677,"gamma":-0.002360535,"delta":-7.531301498,"iv":26.94,"tgRatio":732.4771287017561,"tvRatio":0.7244468967819377},{"name":"IWM Oct 16th 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-10-16","type":"Bull Put","chance":0.5997,"credit":114.91,"maxProfit":114.91,"maxLoss":385.09,"ev":-85.24,"returnPct":-64,"theta":3.999428306,"vega":-1.002485923,"gamma":-0.05409182,"delta":15.448693633,"iv":16.41,"tgRatio":73.93776556233456,"tvRatio":3.9895106896179326},{"name":"IWM Nov 20th 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-11-20","type":"Bull Put","chance":0.7509,"credit":121.5,"maxProfit":121.5,"maxLoss":378.5,"ev":-3.049999999999983,"returnPct":9,"theta":1.194532507,"vega":-1.22870095,"gamma":-0.004242034,"delta":7.398311347,"iv":31.29,"tgRatio":281.5942793009202,"tvRatio":0.9721914083325157},{"name":"AAPL Oct 30th 205/210 Bull Put Spread","underlying":"AAPL","expiration":"2026-10-30","type":"Bull Put","chance":0.8161,"credit":104.92,"maxProfit":104.92,"maxLoss":395.08,"ev":12.970000000000027,"returnPct":44,"theta":2.038520884,"vega":-2.225158693,"gamma":-0.009938046,"delta":3.621412277,"iv":35.75,"tgRatio":205.12290685714274,"tvRatio":0.9161238209269598},{"name":"MSFT Nov 20th 370/380 Bull Put Spread","underlying":"MSFT","expiration":"2026-11-20","type":"Bull Put","chance":0.7334,"credit":231.85,"maxProfit":231.85,"maxLoss":768.15,"ev":-34.74999999999994,"returnPct":22,"theta":2.656535512,"vega":-1.861624392,"gamma":-0.002953719,"delta":7.90440917,"iv":33.24,"tgRatio":899.3866755774669,"tvRatio":1.4269986595663386},{"name":"NVDA Oct 30th 195/200 Bear Call Spread","underlying":"NVDA","expiration":"2026-10-30","type":"Bear Call","chance":0.7055,"credit":100.45,"maxProfit":100.45,"maxLoss":399.55,"ev":-46.8,"returnPct":-38,"theta":1.082456947,"vega":-1.730998377,"gamma":-0.012590623,"delta":-16.331489539,"iv":41.73,"tgRatio":85.97326335638833,"tvRatio":0.6253367775399133},{"name":"AMZN Dec 18th 170/175 Bull Put Spread","underlying":"AMZN","expiration":"2026-12-18","type":"Bull Put","chance":0.7786,"credit":124.56,"maxProfit":124.56,"maxLoss":375.44,"ev":13.859999999999985,"returnPct":6,"theta":1.117074879,"vega":-4.932901716,"gamma":-0.003728952,"delta":3.797017097,"iv":28.18,"tgRatio":299.5680499507637,"tvRatio":0.22645390954714087},{"name":"XLE Nov 20th 100/105 Bear Call Spread","underlying":"XLE","expiration":"2026-11-20","type":"Bear Call","chance":0.7608,"credit":136.73,"maxProfit":136.73,"maxLoss":363.27,"ev":17.13000000000001,"returnPct":27,"theta":1.987843626,"vega":-2.730181326,"gamma":-0.003836327,"delta":-8.220535398,"iv":38.48,"tgRatio":518.1632394735902,"tvRatio":0.7280994881436678},{"name":"GLD Oct 30th 230/235 Bull Put Spread","underlying":"GLD","expiration":"2026-10-30","type":"Bull Put","chance":0.7281,"credit":104.75,"maxProfit":104.75,"maxLoss":395.25,"ev":-31.200000000000017,"returnPct":15,"theta":1.532547616,"vega":-2.184215642,"gamma":-0.004018224,"delta":7.708174706,"iv":30.83,"tgRatio":381.3992490214582,"tvRatio":0.701646662779462},{"name":"TLT Oct 16th 100/105 Bear Call Spread","underlying":"TLT","expiration":"2026-10-16","type":"Bear Call","chance":0.9024,"credit":145.04,"maxProfit":145.04,"maxLoss":354.96,"ev":96.24,"returnPct":35,"theta":5.692536654,"vega":-0.660518108,"gamma":-0.023809234,"delta":-7.763478249,"iv":37.65,"tgRatio":239.08944966478134,"tvRatio":8.618290074191275},{"name":"JPM Dec 18th 195/200 Bull Put Spread","underlying":"JPM","expiration":"2026-12-18","type":"Bull Put","chance":0.7824,"credit":106.54,"maxProfit":106.54,"maxLoss":393.46,"ev":-2.259999999999991,"returnPct":3,"theta":0.741312729,"vega":-4.772621353,"gamma":-0.00306038,"delta":5.146564007,"iv":18.56,"tgRatio":242.22898104157,"tvRatio":0.15532611413516426},{"name":"META Nov 20th 530/540 Bull Put Spread","underlying":"META","expiration":"2026-11-20","type":"Bull Put","chance":0.7770999999999999,"credit":272.02,"maxProfit":272.02,"maxLoss":727.98,"ev":49.11999999999989,"returnPct":-21,"theta":2.171134382,"vega":-2.40711172,"gamma":-0.007128643,"delta":5.035140395,"iv":23.1,"tgRatio":304.5648915228326,"tvRatio":0.9019666033614758},{"name":"COST Oct 30th 850/860 Bull Put Spread","underlying":"COST","expiration":"2026-10-30","type":"Bull Put","chance":0.7328,"credit":206.27,"maxProfit":206.27,"maxLoss":793.73,"ev":-60.92999999999998,"returnPct":40,"theta":5.069219467,"vega":-2.001185413,"gamma":-0.011543601,"delta":2.089240193,"iv":20.17,"tgRatio":439.13675351391646,"tvRatio":2.5331083437194732}]}</script>
+<script>/* Spread book — exit rules and the numbers derived from each spread.
+ *
+ * Shared by report.js in the browser (portfolio.js inlines this file ahead of
+ * it, where it sets globalThis.SpreadBook) and brief.js in Node, so the page
+ * and latest.json always agree on what is ready to close.
+ */
+(function () {
+  "use strict";
+
+  const RULES = {
+    target: 50, // close winners at 50% of max profit
+    stop: 25, // close losers when the loss reaches 25% of max loss
+    rollDays: 21, // close or roll inside this many days
+    near: 0.6, // "getting close": this far toward either exit
+  };
+
+  // "4/17/26 14:00" or "2026-04-17" → "2026-04-17"
+  function isoDate(s) {
+    const m = String(s || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (!m) return String(s || "").slice(0, 10);
+    return `${m[3].length === 2 ? "20" + m[3] : m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  }
+
+  // download.js stamps filenames with America/New_York wall-clock time; turn one into an instant.
+  function fromDenver(date, hh, mm) {
+    const guess = new Date(`${date}T${hh}:${mm}:00Z`);
+    const off = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "longOffset" })
+      .formatToParts(guess).find((p) => p.type === "timeZoneName").value; // e.g. "GMT-06:00"
+    const m = off.match(/([+-])(\d{2}):(\d{2})/);
+    const mins = m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+    return new Date(guess.getTime() - mins * 60000);
+  }
+
+  // When the snapshot was taken. The source CSV's name carries it in Mountain time (download.js
+  // stamps it that way). Older JSON files were backfilled or read the stamp as UTC, so their
+  // generatedAt can't be trusted.
+  function takenAt(snap) {
+    const m = String(snap.source || "").match(/(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
+    return m ? fromDenver(m[1], m[2], m[3]).toISOString() : snap.generatedAt;
+  }
+
+  // Adds the derived fields to a snapshot position in place.
+  function enrich(p, snap) {
+    p.expiration = isoDate(p.expiration);
+    p.strikes = (p.name.match(/[\d.]+\/[\d.]+/) || [""])[0];
+    p.kind = p.type === "Bull Put" ? "put" : p.type === "Bear Call" ? "call" : "other";
+    // Count days from the snapshot's Mountain-time calendar date, the same clock as the filenames.
+    const snapDate = new Date(takenAt(snap)).toLocaleDateString("sv", { timeZone: "America/New_York" });
+    const snapDay = Date.UTC(...snapDate.split("-").map((n, i) => (i === 1 ? n - 1 : +n)));
+    const [y, mo, d] = p.expiration.split("-").map(Number);
+    p.dte = Math.round((Date.UTC(y, mo - 1, d) - snapDay) / 864e5);
+    p.tg = p.gamma ? p.theta / Math.abs(p.gamma) : null;
+    p.tv = p.vega ? p.theta / Math.abs(p.vega) : null;
+    p.ev = p.chance * p.maxProfit - (1 - p.chance) * p.maxLoss;
+    // Same formula as lossOfRisk in portfolio.js, as a positive share.
+    p.lossOfMax = p.returnPct < 0 && p.maxLoss > 0 ? ((-p.returnPct / 100) * p.maxProfit / p.maxLoss) * 100 : 0;
+    p.toward = p.returnPct >= 0 ? Math.min(1, p.returnPct / RULES.target) : -Math.min(1, p.lossOfMax / RULES.stop);
+    p.exit = p.returnPct >= RULES.target ? "close" : p.lossOfMax >= RULES.stop ? "stop" : "";
+    return p;
+  }
+
+  // A bull put and a bear call on the same underlying and expiration are an iron condor.
+  function tagCondors(list) {
+    for (const p of list) {
+      p.condor = list.some((o) => o !== p && o.underlying === p.underlying && o.expiration === p.expiration && o.kind !== p.kind && o.kind !== "other" && p.kind !== "other");
+    }
+  }
+
+  // The four decision lists at the top of the report, each in display order. Takes enriched positions.
+  function decide(list) {
+    return {
+      ready: list.filter((p) => p.exit === "close").sort((a, b) => b.returnPct - a.returnPct),
+      stopped: list.filter((p) => p.exit === "stop").sort((a, b) => b.lossOfMax - a.lossOfMax),
+      soon: list.filter((p) => !p.exit && p.dte <= RULES.rollDays).sort((a, b) => a.dte - b.dte),
+      near: list.filter((p) => !p.exit && p.dte > RULES.rollDays && Math.abs(p.toward) >= RULES.near).sort((a, b) => Math.abs(b.toward) - Math.abs(a.toward)),
+    };
+  }
+
+  const api = { RULES, isoDate, fromDenver, takenAt, enrich, tagCondors, decide };
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else globalThis.SpreadBook = api;
+})();
+</script>
+<script>/* Spread book — client-side renderer, embedded in every portfolio report by portfolio.js.
+ *
+ * The page carries its own snapshot as JSON (#book-data). The snapshot menu
+ * lists the newest reports from snapshots.json (written by generate-index.js)
+ * and loads the chosen <base>-portfolio.json in place, so older snapshots are
+ * drawn with this same page.
+ */
+(() => {
+  "use strict";
+
+  const SB = globalThis.SpreadBook; // book.js, inlined ahead of this script
+  const { target: TARGET, stop: STOP, rollDays: ROLL_DAYS } = SB.RULES;
+  const takenAt = SB.takenAt;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const fmt = (v, dp = 2) => (v < 0 ? "−" : "") + Math.abs(v).toFixed(dp);
+  const signed = (v, dp = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(dp);
+  const pct = (v) => signed(v, 0) + "%";
+  const money = (v) => { const r = Math.round(v); return (r < 0 ? "−$" : "$") + Math.abs(r).toLocaleString(); };
+  const sum = (list, k) => list.reduce((s, p) => s + p[k], 0);
+  const median = (xs) => { const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const expLabel = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const snapLabel = (iso) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  // Gains as a share of max profit, losses as a share of max loss.
+  const exitPct = (p) => (p.returnPct >= 0 ? pct(p.returnPct) : "−" + p.lossOfMax.toFixed(1) + "%");
+  const exitLong = (p) => (p.returnPct >= 0 ? `${pct(p.returnPct)} of max profit` : `${p.lossOfMax.toFixed(1)}% of max loss`);
+
+  // ---- state ---------------------------------------------------------------
+  const embedded = JSON.parse($("book-data").textContent);
+  const embeddedBase = document.body.dataset.base;
+  let snap = embedded; // the snapshot on screen
+  let base = []; // its positions, enriched
+  let hypos = []; // trial trades
+  let hypoSeq = 0;
+  let greek = "theta";
+  let selected = null;
+  let sort = { key: "dte", dir: 1 };
+
+  function enrich(p, id) {
+    p.id = id;
+    return SB.enrich(p, snap);
+  }
+  const tagCondors = SB.tagCondors;
+  const all = () => [...base, ...hypos];
+
+  function useSnapshot(s) {
+    snap = s;
+    base = s.positions.map((p, i) => enrich({ ...p }, "p" + i));
+    hypos = hypos.map((h) => enrich(h, h.id));
+    tagCondors(all());
+    // Ids are per snapshot, so keep the selection only when it's a trial trade.
+    if (!hypos.some((p) => p.id === selected)) selected = [...base].sort((a, b) => a.toward - b.toward)[0]?.id ?? null;
+    render();
+  }
+
+  // ---- book strip ------------------------------------------------------------
+  const GREEKS = {
+    theta: { name: "Theta", unit: "per day", help: "What the book earns each day from time decay.", title: "Theta by underlying and expiration", note: "Brighter cells earn more per day. A column much brighter than the rest means income is bunched on one expiration.", dp: 2 },
+    delta: { name: "Delta", unit: "", help: "Net direction. Positive gains if the market rises.", title: "Delta by underlying and expiration", note: "Bright cells lean bullish, dark cells lean bearish. The total row shows how hard each expiration leans.", dp: 1, diverging: true },
+    gamma: { name: "Gamma", unit: "", help: "How quickly delta turns against you in a big move.", title: "Gamma by underlying and expiration", note: "Brighter cells lose faster in a sharp move either way. Gamma climbs as expiration nears, so watch the nearest column.", dp: 2 },
+    vega: { name: "Vega", unit: "per IV point", help: "What the book loses if implied volatility rises one point.", title: "Vega by underlying and expiration", note: "Brighter cells lose more in a volatility spike. Longer-dated spreads usually carry more.", dp: 2 },
+  };
+
+  function renderBook() {
+    $("book").innerHTML = Object.entries(GREEKS).map(([k, g], i) => {
+      const total = sum(all(), k), diff = sum(hypos, k);
+      return `<button class="greek" type="button" data-g="${k}" aria-pressed="${k === greek}" title="Press ${i + 1}">
+        <span class="g-name">${g.name}${g.unit ? " " + g.unit : ""}</span>
+        <span class="g-val">${fmt(total, g.dp)}${hypos.length ? `<span class="g-diff">${signed(diff, g.dp)}</span>` : ""}</span>
+        <span class="g-help">${g.help}</span></button>`;
+    }).join("");
+  }
+  $("book").addEventListener("click", (e) => {
+    const b = e.target.closest(".greek"); if (!b) return;
+    greek = b.dataset.g; render();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("textarea, input, select") || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = { 1: "theta", 2: "delta", 3: "gamma", 4: "vega" }[e.key];
+    if (k) { greek = k; render(); }
+  });
+
+  // ---- decisions -------------------------------------------------------------
+  function renderDecide() {
+    const list = all();
+    const what = (p) => `${esc(p.strikes)} ${p.kind}, ${p.dte} days`;
+    const item = (p, num, hot, title) => `<li><button type="button" data-id="${p.id}"><span class="sym">${esc(p.underlying)}</span><span class="d-what">${what(p)}</span><span class="d-num ${hot ? "hot" : ""}" title="${title}">${num}</span></button></li>`;
+    const block = (title, help, rows, empty) => {
+      const shown = rows.slice(0, 6), more = rows.length - shown.length;
+      return `<section><h2>${title}</h2><p class="d-help">${help}</p>${rows.length ? `<ul>${shown.join("")}</ul>${more ? `<p class="empty">and ${more} more in the scorecard</p>` : ""}` : `<p class="empty">${empty}</p>`}</section>`;
+    };
+    const { ready, stopped, soon, near } = SB.decide(list);
+    const best = [...list].sort((a, b) => b.returnPct - a.returnPct)[0];
+    const worst = [...list].sort((a, b) => b.lossOfMax - a.lossOfMax)[0];
+    $("decide").innerHTML =
+      block("Ready to close", `At or past ${TARGET}% of max profit.`, ready.map((p) => item(p, exitPct(p), true, exitLong(p))),
+        best && best.returnPct > 0 ? `None yet. Closest is ${esc(best.underlying)} at ${pct(best.returnPct)}.` : "None yet.") +
+      block("At the stop", `Loss has reached ${STOP}% of max loss.`, stopped.map((p) => item(p, exitPct(p), true, exitLong(p))),
+        worst && worst.lossOfMax > 0 ? `None. Worst is ${esc(worst.underlying)} at ${worst.lossOfMax.toFixed(1)}% of max loss.` : "Nothing is losing.") +
+      block(`${ROLL_DAYS} days or less`, "Close or roll before gamma speeds up.", soon.map((p) => item(p, exitPct(p), false, exitLong(p))), `Nothing expires within ${ROLL_DAYS} days.`) +
+      block("Getting close", `Past ${SB.RULES.near * 100}% of the way to either exit.`, near.map((p) => item(p, exitPct(p), false, exitLong(p))), "Everything else is in the middle.");
+  }
+  $("decide").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b) select(b.dataset.id, true); });
+
+  // ---- heatmap ---------------------------------------------------------------
+  // Magnitude pulls the signal out of the surface; negative delta pulls ink instead.
+  function shade(v, max) {
+    const t = max ? Math.min(1, Math.abs(v) / max) : 0;
+    const mix = Math.round(8 + t * 80);
+    const hue = GREEKS[greek].diverging && v < 0 ? "var(--ink)" : "var(--signal)";
+    return { bg: `color-mix(in oklab, ${hue} ${mix}%, var(--surface))`, fg: mix > 55 ? "var(--ground)" : "var(--ink)" };
+  }
+
+  // One row per underlying and spread type, so the two legs of an iron condor stay apart.
+  function renderHeat() {
+    const g = GREEKS[greek], list = all();
+    const exps = [...new Set(list.map((p) => p.expiration))].sort();
+    const rows = [...new Set(list.map((p) => p.underlying + "|" + p.kind))].map((k) => { const [u, kind] = k.split("|"); return { u, kind, ps: list.filter((p) => p.underlying === u && p.kind === kind) }; });
+    rows.forEach((r) => (r.total = sum(r.ps, greek)));
+    rows.sort((a, b) => (g.diverging ? b.total - a.total : Math.abs(b.total) - Math.abs(a.total)));
+    const cellVals = rows.flatMap((r) => exps.map((e) => sum(r.ps.filter((p) => p.expiration === e), greek)));
+    const max = Math.max(...cellVals.map(Math.abs), 1e-9);
+    $("grid-title").textContent = g.title;
+    $("grid-note").textContent = g.note;
+    $("legend").innerHTML = g.diverging
+      ? `bearish <i style="background:linear-gradient(90deg, color-mix(in oklab, var(--ink) 88%, var(--surface)), var(--surface), color-mix(in oklab, var(--signal) 88%, var(--surface)))"></i> bullish`
+      : `less <i style="background:linear-gradient(90deg, var(--surface), color-mix(in oklab, var(--signal) 88%, var(--surface)))"></i> more`;
+    const head = `<thead><tr><th scope="col">Symbol</th>${exps.map((e) => `<th scope="col"><span class="dte">${list.find((p) => p.expiration === e).dte} days</span>${expLabel(e)}</th>`).join("")}<th scope="col">Total</th></tr></thead>`;
+    const body = rows.map((r) => `<tr><th scope="row">${esc(r.u)}<small>${r.kind}</small></th>${exps.map((e) => {
+      const ps = r.ps.filter((p) => p.expiration === e);
+      if (!ps.length) return `<td><span class="cell none"></span></td>`;
+      const v = sum(ps, greek), c = shade(v, max);
+      const lead = ps.find((p) => p.id === selected) || ps[0];
+      const label = ps.length > 1 ? `${ps.length} ${r.u} ${r.kind} spreads` : esc(lead.name);
+      return `<td><button type="button" class="cell ${ps.some((p) => p.hypo) ? "hypo" : ""} ${ps.some((p) => p.id === selected) ? "sel" : ""}" data-id="${lead.id}" style="background:${c.bg};color:${c.fg}" aria-label="${label}, ${g.name} ${fmt(v, g.dp)}">${fmt(v, g.dp)}</button></td>`;
+    }).join("")}<td class="tot">${fmt(r.total, g.dp)}</td></tr>`).join("");
+    const foot = `<tfoot><tr><th scope="row">Total</th>${exps.map((e) => `<td class="tot">${fmt(sum(list.filter((p) => p.expiration === e), greek), g.dp)}</td>`).join("")}<td class="tot">${fmt(sum(list, greek), g.dp)}</td></tr></tfoot>`;
+    $("heat").innerHTML = head + `<tbody>${body}</tbody>` + foot;
+  }
+  $("heat").addEventListener("click", (e) => { const b = e.target.closest(".cell[data-id]"); if (b) select(b.dataset.id); });
+
+  // ---- detail ----------------------------------------------------------------
+  function barHTML(p) {
+    const w = Math.abs(p.toward) * 50;
+    const fill = p.toward >= 0 ? `<span class="fill up" style="left:50%;width:${w}%"></span>` : `<span class="fill down" style="left:${50 - w}%;width:${w}%"></span>`;
+    return `<div class="bar" aria-hidden="true">${fill}<span class="zero" style="left:50%"></span></div>`;
+  }
+  function rankOf(p, key) {
+    if (p[key] === null) return "";
+    const ranked = all().filter((x) => x[key] !== null).sort((a, b) => b[key] - a[key]);
+    return `<span class="rank">${ranked.indexOf(p) + 1} of ${ranked.length}</span>`;
+  }
+  function renderDetail() {
+    const p = all().find((x) => x.id === selected);
+    if (!p) { $("detail").innerHTML = `<p class="muted">Select a cell, dot or row to see that spread.</p>`; return; }
+    const hot = !!p.exit;
+    const status = p.exit === "close" ? "Past the close target" : p.exit === "stop" ? "At the stop" : p.returnPct >= 0 ? `of max profit. Close at ${TARGET}%` : `of max loss. Stop at ${STOP}%`;
+    const sameCell = all().filter((o) => o !== p && o.underlying === p.underlying && o.kind === p.kind && o.expiration === p.expiration);
+    const partner = p.condor ? all().find((o) => o.underlying === p.underlying && o.expiration === p.expiration && o.kind !== p.kind) : null;
+    $("detail").innerHTML = `
+      <h3>${esc(p.underlying)} ${esc(p.strikes)}</h3>
+      <div class="d-sub">${esc(p.type)} spread, expires ${expLabel(p.expiration)} (${p.dte} days)${p.hypo ? ". Trial trade, not in the book" : ""}</div>
+      ${partner ? `<div class="also">Iron condor with the ${esc(partner.strikes)} ${partner.kind} spread <button type="button" data-id="${partner.id}">Show</button></div>` : ""}
+      ${sameCell.length ? `<div class="also">Same cell: ${sameCell.map((o) => `<button type="button" data-id="${o.id}">${esc(o.strikes)}</button>`).join("")}</div>` : ""}
+      <div class="progress">
+        <div class="p-head"><span class="p-val ${hot ? "hot" : ""}">${exitPct(p)}</span><span class="p-lbl">${status}</span></div>
+        ${barHTML(p)}
+        <div class="bar-scale"><span>stop at ${STOP}% of max loss</span><span>0</span><span>close at ${TARGET}% of max profit</span></div>
+      </div>
+      <dl class="kv">
+        <dt>Probability of profit</dt><dd>${Math.round(p.chance * 100)}%</dd>
+        <dt>Credit</dt><dd>${money(p.credit)}</dd>
+        <dt>Max loss</dt><dd>${money(p.maxLoss)}</dd>
+        <dt>Expected value</dt><dd>${money(p.ev)}</dd>
+        <dt>IV</dt><dd>${p.iv.toFixed(1)}%</dd>
+        <dt>Days left</dt><dd class="${p.dte <= ROLL_DAYS ? "hot" : ""}">${p.dte}</dd>
+      </dl>
+      <h4>Greeks</h4>
+      <dl class="kv">
+        <dt>Theta per day</dt><dd>${fmt(p.theta)}</dd>
+        <dt>Delta</dt><dd>${fmt(p.delta, 1)}</dd>
+        <dt>Gamma</dt><dd>${fmt(p.gamma)}</dd>
+        <dt>Vega</dt><dd>${fmt(p.vega)}</dd>
+      </dl>
+      <h4>Pay for risk</h4>
+      <dl class="kv">
+        <dt>Theta per unit gamma</dt><dd>${p.tg === null ? "no gamma" : p.tg.toFixed(2) + rankOf(p, "tg")}</dd>
+        <dt>Theta per unit vega</dt><dd>${p.tv === null ? "no vega" : p.tv.toFixed(2) + rankOf(p, "tv")}</dd>
+      </dl>`;
+  }
+  $("detail").addEventListener("click", (e) => { const b = e.target.closest("[data-id]"); if (b) select(b.dataset.id); });
+
+  // ---- quality scatter -------------------------------------------------------
+  function renderPlot() {
+    const skipped = all().filter((p) => p.tg === null || p.tv === null);
+    const list = all().filter((p) => p.tg !== null && p.tv !== null);
+    if (!list.length) { $("plot").innerHTML = `<p class="plot-note">No spread has both gamma and vega, so there's nothing to plot.</p>`; return; }
+    const W = 640, H = 300, pad = { l: 44, r: 16, t: 14, b: 36 };
+    const xStep = Math.max(...list.map((p) => p.tg)) > 20 ? 5 : 2;
+    const xMax = Math.max(xStep, Math.ceil((Math.max(...list.map((p) => p.tg)) * 1.08) / xStep) * xStep);
+    const yMax = Math.max(0.5, Math.ceil(Math.max(...list.map((p) => p.tv)) * 1.05 * 2) / 2);
+    const x = (v) => pad.l + (v / xMax) * (W - pad.l - pad.r), y = (v) => H - pad.b - (v / yMax) * (H - pad.t - pad.b);
+    const real = list.filter((p) => !p.hypo);
+    const mx = median((real.length ? real : list).map((p) => p.tg)), my = median((real.length ? real : list).map((p) => p.tv));
+    const xt = Array.from({ length: xMax / xStep + 1 }, (_, i) => i * xStep);
+    const yStep = yMax > 3 ? 1 : 0.5, yt = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, i) => i * yStep);
+    // Labels try right, left, above, then below the dot, taking the first spot that is free.
+    const boxes = list.map((p) => ({ x0: x(p.tg) - 7, x1: x(p.tg) + 7, y0: y(p.tv) - 7, y1: y(p.tv) + 7 }));
+    const hits = (b) => b.x0 < pad.l || b.x1 > W || b.y0 < 0 || boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+    // Name the leg when an underlying has both a put and a call spread.
+    const twice = new Set(list.filter((p) => list.some((o) => o.underlying === p.underlying && o.kind !== p.kind)).map((p) => p.underlying));
+    const dots = list.map((p) => {
+      const name = twice.has(p.underlying) ? `${p.underlying} ${p.kind}` : p.underlying;
+      const cx = x(p.tg), cy = y(p.tv), w = name.length * 7 + 2;
+      const spots = [[cx + 8, cy + 4, "start"], [cx - 8, cy + 4, "end"], [cx, cy - 10, "middle"], [cx, cy + 18, "middle"]];
+      const box = ([lx, ly, a]) => { const x0 = a === "start" ? lx : a === "end" ? lx - w : lx - w / 2; return { x0, x1: x0 + w, y0: ly - 10, y1: ly + 2 }; };
+      const spot = spots.find((sp) => !hits(box(sp))) ?? spots[0];
+      boxes.push(box(spot));
+      const weak = !p.hypo && p.tg < mx && p.tv < my;
+      return `<g><circle class="dot ${weak ? "weak" : ""} ${p.hypo ? "hypo" : ""} ${p.id === selected ? "sel" : ""}" data-id="${p.id}" cx="${cx}" cy="${cy}" r="${p.id === selected ? 7 : 5}" tabindex="0" role="button" aria-label="${esc(p.name)}"><title>${esc(p.name)}</title></circle><text class="lbl" x="${spot[0]}" y="${spot[1]}" text-anchor="${spot[2]}">${esc(name)}</text></g>`;
+    }).join("");
+    $("plot").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Theta per gamma against theta per vega for each spread">
+      <rect class="zone" x="${pad.l}" y="${y(my)}" width="${x(mx) - pad.l}" height="${H - pad.b - y(my)}" rx="3"/>
+      <text x="${pad.l + 6}" y="${H - pad.b - 8}">below median on both</text>
+      <line class="axis" x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}"/>
+      <line class="axis" x1="${pad.l}" x2="${pad.l}" y1="${pad.t}" y2="${H - pad.b}"/>
+      <line class="med" x1="${x(mx)}" x2="${x(mx)}" y1="${pad.t}" y2="${H - pad.b}"/>
+      <line class="med" x1="${pad.l}" x2="${W - pad.r}" y1="${y(my)}" y2="${y(my)}"/>
+      ${xt.map((v) => `<text x="${x(v)}" y="${H - pad.b + 16}" text-anchor="middle">${v}</text>`).join("")}
+      ${yt.map((v) => `<text x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(1)}</text>`).join("")}
+      <text x="${W - pad.r}" y="${H - 4}" text-anchor="end">theta per unit gamma</text>
+      <text transform="translate(10 ${(pad.t + H - pad.b) / 2}) rotate(-90)" text-anchor="middle">theta per unit vega</text>
+      ${dots}</svg>${skipped.length ? `<p class="plot-note">${skipped.map((p) => esc(p.underlying)).join(", ")} ${skipped.length > 1 ? "have" : "has"} no measurable gamma or vega, so ${skipped.length > 1 ? "they are" : "it is"} left off the chart.</p>` : ""}`;
+  }
+  $("plot").addEventListener("click", (e) => { const d = e.target.closest(".dot"); if (d) select(d.dataset.id); });
+  $("plot").addEventListener("keydown", (e) => { const d = e.target.closest(".dot"); if (d && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(d.dataset.id); } });
+
+  // ---- scorecard -------------------------------------------------------------
+  const COLS = [
+    ["underlying", "Symbol"], ["strikes", "Spread"], ["dte", "Days"], ["chance", "PoP"], ["credit", "Credit"], ["maxLoss", "Max loss"], ["ev", "EV"],
+    ["toward", "Toward an exit"], ["theta", "Theta"], ["delta", "Delta"], ["gamma", "Gamma"], ["vega", "Vega"], ["iv", "IV"], ["tg", "Θ per Γ"], ["tv", "Θ per V"],
+  ];
+  const ASC_FIRST = ["underlying", "strikes", "dte"];
+  function renderScorecard() {
+    const list = all();
+    const rows = [...list].sort((a, b) => {
+      // Missing ratios sort last whichever way the column is sorted.
+      const va = a[sort.key] ?? Infinity * sort.dir, vb = b[sort.key] ?? Infinity * sort.dir;
+      const d = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+      return d * sort.dir || a.dte - b.dte || b.theta - a.theta;
+    });
+    const head = `<thead><tr>${COLS.map(([k, l]) => `<th scope="col" ${sort.key === k ? `aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : ""}><button type="button" data-k="${k}">${l}</button></th>`).join("")}</tr></thead>`;
+    const body = rows.map((p) => `<tr data-id="${p.id}" class="${p.id === selected ? "sel" : ""} ${p.hypo ? "hypo" : ""}">
+      <td class="sym">${esc(p.underlying)}</td><td class="kind">${esc(p.strikes)} ${p.kind}${p.condor ? `<span class="tag">iron condor</span>` : ""}${p.hypo ? `<span class="tag">trial</span>` : ""}</td>
+      <td class="num ${p.dte <= ROLL_DAYS ? "hot" : ""}">${p.dte}</td><td class="num">${Math.round(p.chance * 100)}%</td><td class="num">${money(p.credit)}</td><td class="num">${money(p.maxLoss)}</td><td class="num">${money(p.ev)}</td>
+      <td class="num ${p.exit ? "hot" : ""}" title="${exitLong(p)}">${exitPct(p)}<span class="mini">${barHTML(p)}</span></td>
+      <td class="num">${fmt(p.theta)}</td><td class="num">${fmt(p.delta, 1)}</td><td class="num">${fmt(p.gamma)}</td><td class="num">${fmt(p.vega)}</td>
+      <td class="num">${p.iv.toFixed(0)}%</td><td class="num">${p.tg === null ? "—" : p.tg.toFixed(2)}</td><td class="num">${p.tv === null ? "—" : p.tv.toFixed(2)}</td></tr>`).join("");
+    const n = list.length || 1, tTot = sum(list, "theta"), gTot = sum(list, "gamma"), vTot = sum(list, "vega");
+    const foot = `<tfoot><tr><td>Book</td><td class="kind">${list.length} spreads</td><td></td>
+      <td class="num">${Math.round((sum(list, "chance") / n) * 100)}%<span class="avg">avg</span></td><td class="num">${money(sum(list, "credit"))}</td><td class="num">${money(sum(list, "maxLoss"))}</td><td class="num">${money(sum(list, "ev"))}</td><td></td>
+      <td class="num">${fmt(tTot)}</td><td class="num">${fmt(sum(list, "delta"), 1)}</td><td class="num">${fmt(gTot)}</td><td class="num">${fmt(vTot)}</td>
+      <td class="num">${(sum(list, "iv") / n).toFixed(0)}%<span class="avg">avg</span></td><td class="num">${gTot ? (tTot / Math.abs(gTot)).toFixed(2) : "—"}</td><td class="num">${vTot ? (tTot / Math.abs(vTot)).toFixed(2) : "—"}</td></tr></tfoot>`;
+    $("sc").innerHTML = head + `<tbody>${body}</tbody>` + foot;
+  }
+  $("sc").addEventListener("click", (e) => {
+    const h = e.target.closest("th button");
+    if (h) { const k = h.dataset.k; sort = { key: k, dir: sort.key === k ? -sort.dir : ASC_FIRST.includes(k) ? 1 : -1 }; renderScorecard(); return; }
+    const r = e.target.closest("tbody tr[data-id]"); if (r) select(r.dataset.id, true);
+  });
+
+  // ---- trial trades ----------------------------------------------------------
+  // Parses a row from the OptionStrat export, comma- or tab-separated (an Excel paste).
+  // 0:Name 1:Return% 2:Return$ 3:CreatedAt 4:Expiration 5:NetCredit 6:Chance 7:MaxLoss 8:MaxProfit ... 11:Delta 12:Theta 13:Gamma 14:Vega 15:Rho 16:IV
+  function parseCSVLine(line) {
+    if (line.includes("\t")) return line.split("\t").map((s) => s.trim());
+    const out = []; let cur = "", q = false;
+    for (const c of line) {
+      if (c === '"') q = !q;
+      else if (c === "," && !q) { out.push(cur.trim()); cur = ""; }
+      else cur += c;
+    }
+    out.push(cur.trim());
+    return out;
+  }
+  const parsePct = (s) => parseFloat((s || "").replace("%", "")) || 0;
+  const parseDollar = (s) => (s && s.includes("(") ? -1 : 1) * (parseFloat((s || "").replace(/[^0-9.]/g, "")) || 0);
+  function parseRow(line) {
+    const v = parseCSVLine(line), name = (v[0] || "").trim();
+    if (!name || !name.toLowerCase().includes("spread")) return null;
+    if (!/^\d{1,2}\/\d{1,2}\/\d{2,4}|^\d{4}-\d{2}-\d{2}/.test(v[4] || "")) return null;
+    return {
+      name, underlying: name.split(" ")[0], expiration: v[4],
+      type: name.includes("Bull Put") ? "Bull Put" : name.includes("Bear Call") ? "Bear Call" : "Other",
+      returnPct: parsePct(v[1]), credit: Math.abs(parseDollar(v[5])), chance: parsePct(v[6]) / 100,
+      maxLoss: Math.abs(parseDollar(v[7])), maxProfit: Math.abs(parseDollar(v[8])),
+      delta: parseFloat(v[11]) || 0, theta: parseFloat(v[12]) || 0, gamma: parseFloat(v[13]) || 0, vega: parseFloat(v[14]) || 0, iv: parsePct(v[16]),
+      hypo: true,
+    };
+  }
+  function addTrial() {
+    const lines = $("whatif-text").value.split("\n").map((l) => l.trim()).filter(Boolean);
+    const parsed = lines.map(parseRow);
+    const bad = parsed.filter((p) => !p).length;
+    $("whatif-error").hidden = !bad;
+    $("whatif-error").textContent = bad ? `${bad === lines.length ? "That row isn't" : `${bad} of ${lines.length} rows aren't`} a spread from the OptionStrat export. Copy the whole row, starting with the spread name.` : "";
+    const good = parsed.filter(Boolean).map((p) => enrich(p, "h" + ++hypoSeq));
+    if (!good.length) return;
+    hypos.push(...good);
+    tagCondors(all());
+    selected = good[good.length - 1].id;
+    $("whatif-text").value = lines.filter((_, i) => !parsed[i]).join("\n"); // leave rejected rows to fix
+    render();
+  }
+  $("whatif-btn").addEventListener("click", () => {
+    const p = $("whatif"); p.hidden = !p.hidden;
+    $("whatif-btn").setAttribute("aria-expanded", String(!p.hidden));
+    if (!p.hidden) $("whatif-text").focus();
+  });
+  $("whatif-add").addEventListener("click", addTrial);
+  $("whatif-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTrial(); } });
+  function renderChips() {
+    $("chips").innerHTML = hypos.map((p) => `<span class="chip">${esc(p.underlying)} ${esc(p.strikes)} ${p.kind}<button type="button" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></span>`).join("");
+  }
+  $("chips").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    hypos = hypos.filter((p) => p.id !== b.dataset.id);
+    tagCondors(all());
+    if (selected === b.dataset.id) selected = base[0]?.id ?? null;
+    render();
+  });
+
+  // ---- snapshots -------------------------------------------------------------
+  // snapshots.json lists the newest reports ({ base, generatedAt }), newest first.
+  let snapshots = [{ base: embeddedBase, generatedAt: takenAt(embedded) }];
+  function renderSnapshots(current) {
+    $("snapshot").innerHTML = snapshots.map((s) => `<option value="${esc(s.base)}" ${s.base === current ? "selected" : ""}>${snapLabel(s.generatedAt)}</option>`).join("");
+  }
+  function status(text, error) {
+    $("snap-status").textContent = text;
+    $("snap-status").classList.toggle("error", !!error);
+  }
+  async function loadSnapshot(b) {
+    if (b === embeddedBase) { useSnapshot(embedded); status(""); return true; }
+    status("Loading…");
+    try {
+      const res = await fetch(encodeURIComponent(b) + "-portfolio.json");
+      if (!res.ok) throw new Error(res.status);
+      useSnapshot(await res.json());
+      status("");
+      return true;
+    } catch (err) {
+      status("Couldn't load that snapshot. Showing the one before.", true);
+      return false;
+    }
+  }
+  let shown = embeddedBase;
+  $("snapshot").addEventListener("change", async (e) => {
+    const b = e.target.value;
+    if (await loadSnapshot(b)) {
+      shown = b;
+      const url = new URL(location.href);
+      if (b === embeddedBase) url.searchParams.delete("snapshot"); else url.searchParams.set("snapshot", b);
+      history.replaceState(null, "", url);
+    } else e.target.value = shown;
+  });
+  async function initSnapshots() {
+    try {
+      const res = await fetch("snapshots.json", { cache: "no-store" });
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list) && list.length) snapshots = list.some((s) => s.base === embeddedBase) ? list : [{ base: embeddedBase, generatedAt: takenAt(embedded) }, ...list];
+      }
+    } catch (_) { /* opened from disk or the list is missing: keep just this report */ }
+    const wanted = new URL(location.href).searchParams.get("snapshot");
+    if (wanted && wanted !== embeddedBase && snapshots.some((s) => s.base === wanted) && (await loadSnapshot(wanted))) shown = wanted;
+    renderSnapshots(shown);
+  }
+
+  // ---- theme -----------------------------------------------------------------
+  const root = document.documentElement;
+  const syncTheme = () => ($("theme-btn").textContent = root.dataset.theme === "light" ? "Dark mode" : "Light mode");
+  $("theme-btn").addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+    try { localStorage.setItem("optionspread.theme", root.dataset.theme); } catch (_) { /* won't persist */ }
+    syncTheme();
+  });
+  syncTheme();
+
+  function select(id, scroll) {
+    selected = id; render();
+    if (scroll && window.innerWidth <= 1040) $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function render() {
+    renderBook(); renderDecide(); renderHeat(); renderDetail(); renderPlot(); renderScorecard(); renderChips();
+  }
+
+  renderSnapshots(embeddedBase);
+  useSnapshot(embedded);
+  initSnapshots();
+})();
+</script>
+</body>
+</html>

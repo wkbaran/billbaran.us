@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-palette="#15162b,#e6e4f5,#b69bff">
+<head>
+<script>window.__DEMO__={"name":"outlier-caucus","project":"outlier-caucus","stub":{"manifest.json":[]},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - files named in __DEMO__.stub answer with that JSON instead of the
+//     network (for documents a snapshot doesn't have, like a live manifest);
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.stub && Object.hasOwn(cfg.stub, file)) return json(200, cfg.stub[file]);
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Democrat trades, October 4, 2026</title>
+  <link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%2315162b%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%224%22%20width%3D%222%22%20height%3D%224%22%20rx%3D%221%22%20fill%3D%22%23b69bff%22%2F%3E%3Cpath%20d%3D%22M8%2016a8%208%200%200%201%2016%200z%22%20fill%3D%22%23b69bff%22%2F%3E%3Cpath%20d%3D%22M9%2017.5h14v6H9zM6%2025h20v3H6z%22%20fill%3D%22%23e6e4f5%22%2F%3E%3Cpath%20d%3D%22M11.4%2019h1.4v4.5h-1.4zM15.3%2019h1.4v4.5h-1.4zM19.2%2019h1.4v4.5h-1.4z%22%20fill%3D%22%2315162b%22%2F%3E%3C%2Fsvg%3E">
+  <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
+  <script>
+(function () {
+  var KEY = "congress-trades.palette";
+  var root = document.documentElement;
+  var ICON = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" rx=\"7\" fill=\"{g}\"/><rect x=\"15\" y=\"4\" width=\"2\" height=\"4\" rx=\"1\" fill=\"{s}\"/><path d=\"M8 16a8 8 0 0 1 16 0z\" fill=\"{s}\"/><path d=\"M9 17.5h14v6H9zM6 25h20v3H6z\" fill=\"{i}\"/><path d=\"M11.4 19h1.4v4.5h-1.4zM15.3 19h1.4v4.5h-1.4zM19.2 19h1.4v4.5h-1.4z\" fill=\"{g}\"/></svg>";
+  try { if (localStorage.getItem("congress-theme") === "light") root.setAttribute("data-theme", "light"); } catch (e) {}
+  var PRESETS = [
+    { name: "Ink and violet", colors: ["#15162b", "#e6e4f5", "#b69bff"] },
+    { name: "Petrol and sodium", colors: ["#0e2a31", "#ece4d0", "#f3a83b"] },
+    { name: "Walnut and cyan", colors: ["#241a12", "#f2e8d3", "#57c7f5"] },
+    { name: "Oxblood and brass", colors: ["#2b1016", "#f1e2de", "#e6c160"] },
+    { name: "Moss and coral", colors: ["#15201a", "#e2ecdc", "#ff8a66"] },
+    { name: "Carbon and signal red", colors: ["#1a1b1d", "#ecebe6", "#ff5a4e"] }
+  ];
+  var defaults = (root.getAttribute("data-palette") || "").split(",").filter(Boolean);
+  if (defaults.length !== 3) defaults = PRESETS[0].colors;
+  function read() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (Array.isArray(saved) && saved.length === 3) return saved;
+    } catch (e) {}
+    return defaults;
+  }
+  function apply(c) {
+    root.style.setProperty("--p-ground", c[0]);
+    root.style.setProperty("--p-ink", c[1]);
+    root.style.setProperty("--p-signal", c[2]);
+    var icon = document.getElementById("favicon");
+    if (icon) icon.setAttribute("href", "data:image/svg+xml," + encodeURIComponent(
+      ICON.replace(/{g}/g, c[0]).replace(/{i}/g, c[1]).replace(/{s}/g, c[2])));
+  }
+  function save(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {} }
+  var colors = read();
+  apply(colors);
+
+  function el(tag, props) {
+    var node = document.createElement(tag);
+    for (var k in props) {
+      if (k === "text") node.textContent = props[k];
+      else if (k.slice(0, 2) === "on") node.addEventListener(k.slice(2), props[k]);
+      else node.setAttribute(k, props[k]);
+    }
+    for (var i = 2; i < arguments.length; i++) node.append(arguments[i]);
+    return node;
+  }
+  function swatches(list) { return list.map(function (c) { return el("span", { style: "background:" + c }); }); }
+
+  function buildPanel() {
+    var code = el("code", { "class": "pal-code", text: colors.join(", ") });
+    var inputs = ["Background", "Text", "Accent"].map(function (label, i) {
+      var input = el("input", { type: "color", id: "pal-" + i, value: colors[i] });
+      input.addEventListener("input", function () {
+        colors = colors.map(function (c, j) { return j === i ? input.value : c; });
+        apply(colors); save(colors); code.textContent = colors.join(", ");
+      });
+      return { input: input, row: el("div", { "class": "pal-field" }, input, el("label", { "for": "pal-" + i, text: label })) };
+    });
+    function sync() {
+      inputs.forEach(function (x, i) { x.input.value = colors[i]; });
+      code.textContent = colors.join(", ");
+    }
+    var presets = el.apply(null, ["div", { "class": "pal-presets" }].concat(PRESETS.map(function (p) {
+      return el.apply(null, ["button", {
+        type: "button", "class": "pal-preset", title: p.name, "aria-label": "Use " + p.name,
+        onclick: function () { colors = p.colors.slice(); apply(colors); save(colors); sync(); }
+      }].concat(swatches(p.colors)));
+    })));
+    var reset = el("button", {
+      type: "button", "class": "pal-reset", text: "Reset to the default",
+      onclick: function () {
+        colors = defaults.slice(); apply(colors);
+        try { localStorage.removeItem(KEY); } catch (e) {}
+        sync();
+      }
+    });
+    var panel = el.apply(null, ["div", { "class": "pal-panel", id: "pal-panel", role: "dialog", "aria-label": "Palette", hidden: "" },
+      el("div", { "class": "pal-heading", text: "Palette" }), presets]
+      .concat(inputs.map(function (x) { return x.row; })).concat([code, reset]));
+    var toggle = el.apply(null, ["button", {
+      type: "button", "class": "pal-toggle", "aria-expanded": "false", "aria-controls": "pal-panel", "aria-label": "Palette",
+      onclick: function () { panel.hidden = !panel.hidden; toggle.setAttribute("aria-expanded", String(!panel.hidden)); }
+    }].concat(swatches(["var(--p-ground)", "var(--p-ink)", "var(--p-signal)"])));
+    var box = el("div", { "class": "pal" }, panel, toggle);
+    function close() { panel.hidden = true; toggle.setAttribute("aria-expanded", "false"); }
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !panel.hidden) close(); });
+    document.addEventListener("pointerdown", function (e) { if (!panel.hidden && !box.contains(e.target)) close(); });
+    document.body.append(box);
+  }
+  document.addEventListener("DOMContentLoaded", buildPanel);
+})();
+</script>
+  <style>
+  :root { --ground: var(--p-ground, #15162b); --ink: var(--p-ink, #e6e4f5); --signal: var(--p-signal, #b69bff); color-scheme: dark; }
+  :root[data-theme="light"] {
+    --ground: var(--p-ink, #e6e4f5); --ink: var(--p-ground, #15162b);
+    --signal: color-mix(in oklab, var(--p-signal, #b69bff) 62%, var(--p-ground, #15162b));
+    color-scheme: light;
+  }
+  :root {
+    --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+    --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+    --line: color-mix(in oklab, var(--ink) 14%, var(--ground));
+    --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+    --muted: color-mix(in oklab, var(--ink) 55%, var(--ground));
+    --sub: color-mix(in oklab, var(--ink) 75%, var(--ground));
+    --wash: color-mix(in oklab, var(--signal) 12%, var(--ground));
+    --rep: color-mix(in oklab, #e0524f 78%, var(--ink));
+    --dem: color-mix(in oklab, #4d84e8 78%, var(--ink));
+    --shadow: 0 18px 48px color-mix(in oklab, black 45%, transparent);
+    --measure: 72rem;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { font-size: 16px; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+    font-family: "Instrument Sans", system-ui, sans-serif; line-height: 1.5;
+    font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--signal); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+  button { font: inherit; color: var(--ink); cursor: pointer; }
+  h1, h2, h3, p, ul, ol { margin: 0; }
+  .wrap { max-width: var(--measure); margin: 0 auto; padding-left: 1.5rem; padding-right: 1.5rem; }
+
+  /* ---- masthead ---- */
+  .top { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1.25rem; padding-top: 1.1rem; padding-bottom: 1.1rem; }
+  .brand { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; text-decoration: none; display: flex; align-items: center; gap: 0.55rem; }
+  /* The mark: a gavel's head resting on a price line. */
+  .brand::before { content: ""; width: 1.25rem; height: 0.9rem; flex: none; background:
+    linear-gradient(var(--signal), var(--signal)) 0 100% / 100% 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) 30% 0 / 0.7rem 0.45rem no-repeat; }
+  .crumbs { display: flex; gap: 1rem; font-size: 0.9rem; color: var(--sub); }
+  .run { color: var(--sub); font-size: 0.9rem; }
+  /* Options get their own colours: left transparent, Windows draws them white. */
+  .run select {
+    font: inherit; color: var(--ink); background: var(--ground); border: 1px solid var(--line-strong);
+    border-radius: 6px; padding: 0.2rem 0.4rem; margin-left: 0.25rem;
+  }
+  .run select option { background: var(--raised); color: var(--ink); }
+  .run-latest { font-size: 0.9rem; font-weight: 600; color: var(--signal); }
+  .top .spacer { flex: 1; }
+  .theme-btn { background: var(--raised); border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.8rem; font-size: 0.82rem; }
+  .theme-btn:hover { border-color: var(--line-strong); }
+
+  /* ---- page head for member / party / archive pages ---- */
+  .page-head-band { border-top: 1px solid var(--line); }
+  .page-head { padding-top: 2.2rem; padding-bottom: 1.5rem; }
+  .page-head h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.1; font-weight: 600; font-stretch: 80%; letter-spacing: -0.02em; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2rem 0.75rem; }
+  .page-head p { margin-top: 0.5rem; color: var(--sub); }
+  .stats-bar { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; margin-top: 0.75rem; color: var(--sub); }
+  .stats-bar strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- party marker: a coloured dot and the letter ---- */
+  .party-tag { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; font-weight: 500; color: var(--sub); white-space: nowrap; cursor: help; }
+  .party-tag::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--muted); }
+  .party-tag.party-r::before { background: var(--rep); }
+  .party-tag.party-d::before { background: var(--dem); }
+  .page-head .party-tag { font-size: 1rem; font-stretch: 100%; }
+
+  /* ---- sections and trade tables ---- */
+  .section { padding-top: 1.5rem; padding-bottom: 1rem; }
+  .section-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-bottom: 0.5rem; }
+  .section-title { font-size: 1.3rem; font-weight: 600; font-stretch: 85%; }
+  .section-count { color: var(--muted); font-size: 0.9rem; }
+  .csv-btn { margin-left: auto; background: none; border: 1px solid var(--line-strong); border-radius: 999px; padding: 0.25rem 0.85rem; font-size: 0.84rem; white-space: nowrap; }
+  .csv-btn:hover { border-color: var(--ink); }
+  .sales-table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { text-align: left; font-weight: 500; font-size: 0.82rem; color: var(--muted); padding: 0.6rem 0.6rem; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+  td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover td { background: var(--surface); }
+  /* Newly disclosed since the previous run: marked, not reordered, because
+     filings lag trades by weeks and would otherwise sit mid-table unnoticed. */
+  tr.row-new td { background: var(--wash); }
+  tr.row-new td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+  .new-tag { display: inline-block; font-size: 0.72rem; font-weight: 600; color: var(--ground); background: var(--signal); border-radius: 3px; padding: 0 0.3rem; margin-left: 0.35rem; vertical-align: 1px; }
+  .sale-date { white-space: nowrap; color: var(--sub); width: 8rem; }
+  .sale-sym { font-weight: 700; white-space: nowrap; width: 5rem; }
+  .sale-amount { white-space: nowrap; }
+  .sale-trader { min-width: 11rem; }
+  .trader-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.45rem; }
+  .sale-desc { color: var(--sub); }
+  .symbol-link { text-decoration: none; }
+  .symbol-link:hover { text-decoration: underline; text-decoration-color: var(--signal); }
+  .no-ticker { font-size: 0.75rem; font-weight: 400; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 0.3rem; white-space: nowrap; }
+  .filing-link { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+  .filing-link:hover { color: var(--ink); }
+  /* Signals read as short words, not capitalised codes; the title still explains each. */
+  .badge, .option-tag, .owner-tag {
+    font-size: 0.75rem; color: var(--sub); border: 1px solid var(--line); border-radius: 4px;
+    padding: 0 0.3rem; white-space: nowrap; cursor: help;
+  }
+  .badge-committee { color: var(--ink); border-color: var(--line-strong); }
+  abbr.committee-abbr { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+
+  footer { max-width: var(--measure); margin: 2rem auto 0; padding: 1.5rem 1.5rem 5rem; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
+
+  /* ---- palette control (from equity-watch) ---- */
+  .pal { position: fixed; left: 1.25rem; bottom: 1.1rem; z-index: 30; }
+  .pal-toggle { display: flex; padding: 4px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); }
+  .pal-toggle span, .pal-preset span { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+  .pal-toggle span + span, .pal-preset span + span { margin-left: -4px; }
+  .pal-panel {
+    position: absolute; left: 0; bottom: calc(100% + 8px); width: 15rem; padding: 0.9rem; display: grid; gap: 0.55rem;
+    background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); font-size: 0.82rem;
+  }
+  .pal-panel[hidden] { display: none; }
+  .pal-panel button { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  .pal-heading { font-weight: 600; font-size: 0.95rem; }
+  .pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pal-preset { display: flex; justify-content: center; padding: 6px 4px; }
+  .pal-field { display: flex; align-items: center; gap: 0.6rem; }
+  .pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+  .pal-code { font-size: 0.75rem; color: var(--sub); user-select: all; }
+  .pal-reset { font-size: 0.75rem; padding: 0.3rem; }
+
+  @media (max-width: 640px) {
+    .wrap { padding-left: 1rem; padding-right: 1rem; }
+    .run, .crumbs { order: 3; flex-basis: 100%; }
+    .run-latest { order: 3; }
+    .pal { left: 1rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  .list-page .section { padding-top: 2rem; }
+</style>
+</head>
+<body class="list-page">
+<header class="wrap top">
+  <a class="brand site-brand" href="index.html">Outlier Caucus</a>
+  <nav class="crumbs" aria-label="Back"><a href="index.html">Report for October 4, 2026</a></nav>
+  <span class="spacer"></span>
+  <button class="theme-btn" id="theme-btn" type="button">Light mode</button>
+</header>
+<main>
+  <div class="page-head-band">
+    <div class="wrap page-head">
+      <h1 class="site-title">Democrat trades</h1>
+      <div class="stats-bar"><span><strong>14</strong> purchases</span><span><strong>9</strong> sales</span><span><strong>23</strong> total</span></div>
+    </div>
+  </div>
+  <div class="wrap">
+    
+  <section class="section" id="purchases">
+    <div class="section-header">
+      <h2 class="section-title">Purchases</h2>
+      <span class="section-count">14 trades</span>
+      <button class="csv-btn" type="button" data-csv-section="democrat-purchases">Download CSV</button>
+    </div>
+    <div class="sales-table-wrap">
+        <table>
+          <thead><tr><th>Traded</th><th>Ticker</th><th>Amount</th><th>Member</th><th>Asset</th></tr></thead>
+          <tbody>
+            
+<tr>
+  <td class="sale-date">Oct 1</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AUNH" target="_blank" rel="noopener noreferrer">UNH</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Healthcare / Healthcare Plans — Committees: Health, Education, Labor, and Pensions, Finance">Committee</span><span class="badge badge-indirect" title="Dependent Child — trade made by the member's dependent child">Child</span></div></td>
+  <td class="sale-desc">UnitedHealth Group Inc</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 29</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3ANWBI" target="_blank" rel="noopener noreferrer">NWBI</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Financial Services / Banks - Regional — Committees: Finance">Committee</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span><span class="badge badge-indirect" title="Spouse — trade made by the member's spouse rather than the member directly">Spouse</span></div></td>
+  <td class="sale-desc">Northwest Bancshares</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 27</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3AMSFT" target="_blank" rel="noopener noreferrer">MSFT</a></td>
+  <td class="sale-amount"><span title="$1,001 - $15,000">$1K–$15K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-indirect" title="Spouse — trade made by the member's spouse rather than the member directly">Spouse</span></div></td>
+  <td class="sale-desc">Microsoft Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 16</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3ACRSP" target="_blank" rel="noopener noreferrer">CRSP</a></td>
+  <td class="sale-amount"><span title="$50,001 - $100,000">$50K–$100K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Healthcare / Biotechnology — Committees: Energy and Commerce">Committee</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span><span class="badge badge-indirect" title="Spouse — trade made by the member's spouse rather than the member directly">Spouse</span></div></td>
+  <td class="sale-desc">CRISPR Therapeutics AG</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 15</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3AKTOS" target="_blank" rel="noopener noreferrer">KTOS</a></td>
+  <td class="sale-amount"><span title="$1,001 - $15,000">$1K–$15K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Aerospace &amp; Defense — Committees: Science, Space, and Technology">Committee</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span></div></td>
+  <td class="sale-desc">Kratos Defense &amp; Security</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 12</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3AKTOS" target="_blank" rel="noopener noreferrer">KTOS</a></td>
+  <td class="sale-amount"><span title="$15,001 - $50,000">$15K–$50K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span><span class="badge badge-indirect" title="Joint — trade made jointly by the member and spouse">Joint</span></div></td>
+  <td class="sale-desc">Kratos Defense &amp; Security</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 9</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AXOM" target="_blank" rel="noopener noreferrer">XOM</a></td>
+  <td class="sale-amount"><span title="$50,001 - $100,000">$50K–$100K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Energy / Oil &amp; Gas Integrated — Committees: Energy and Commerce">Committee</span></div></td>
+  <td class="sale-desc">Exxon Mobil Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 6</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3AMSFT" target="_blank" rel="noopener noreferrer">MSFT</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Technology / Software - Infrastructure — Committees: Energy and Commerce, Science, Space, and Technology">Committee</span></div></td>
+  <td class="sale-desc">Microsoft Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 30</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AXOM" target="_blank" rel="noopener noreferrer">XOM</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Energy / Oil &amp; Gas Integrated — Committees: Energy and Commerce">Committee</span></div></td>
+  <td class="sale-desc">Exxon Mobil Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 29</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ALMT" target="_blank" rel="noopener noreferrer">LMT</a></td>
+  <td class="sale-amount"><span title="$15,001 - $50,000">$15K–$50K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Aerospace &amp; Defense — Committees: Armed Services">Committee</span></div></td>
+  <td class="sale-desc">Lockheed Martin Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 26</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AJPM" target="_blank" rel="noopener noreferrer">JPM</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Financial Services / Banks - Diversified — Committees: Finance">Committee</span><span class="badge badge-derivative" title="Derivative: Options, warrants, or other derivatives — signals timing sensitivity">Options</span></div></td>
+  <td class="sale-desc">JPMorgan Chase &amp; Co - Call Option</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 26</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AUNH" target="_blank" rel="noopener noreferrer">UNH</a></td>
+  <td class="sale-amount"><span title="$1,001 - $15,000">$1K–$15K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Healthcare / Healthcare Plans — Committees: Energy and Commerce">Committee</span><span class="badge badge-indirect" title="Joint — trade made jointly by the member and spouse">Joint</span></div></td>
+  <td class="sale-desc">UnitedHealth Group Inc</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 24</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3ACRSP" target="_blank" rel="noopener noreferrer">CRSP</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Healthcare / Biotechnology — Committees: Health, Education, Labor, and Pensions, Finance">Committee</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span></div></td>
+  <td class="sale-desc">CRISPR Therapeutics AG</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 24</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AJPM" target="_blank" rel="noopener noreferrer">JPM</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Financial Services / Banks - Diversified — Committees: Finance">Committee</span></div></td>
+  <td class="sale-desc">JPMorgan Chase &amp; Co</td>
+</tr>
+          </tbody>
+        </table>
+      </div>
+  </section>
+  <section class="section" id="sales">
+    <div class="section-header">
+      <h2 class="section-title">Sales</h2>
+      <span class="section-count">9 trades</span>
+      <button class="csv-btn" type="button" data-csv-section="democrat-sales">Download CSV</button>
+    </div>
+    <div class="sales-table-wrap">
+        <table>
+          <thead><tr><th>Traded</th><th>Ticker</th><th>Amount</th><th>Member</th><th>Asset</th></tr></thead>
+          <tbody>
+            
+<tr>
+  <td class="sale-date">Oct 2</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ALMT" target="_blank" rel="noopener noreferrer">LMT</a></td>
+  <td class="sale-amount"><span title="$50,001 - $100,000">$50K–$100K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Aerospace &amp; Defense — Committees: Science, Space, and Technology">Committee</span></div></td>
+  <td class="sale-desc">Lockheed Martin Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 27</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AJPM" target="_blank" rel="noopener noreferrer">JPM</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-avery-lindqvist.html">Avery Lindqvist</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span></div></td>
+  <td class="sale-desc">JPMorgan Chase &amp; Co</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 13</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ADE" target="_blank" rel="noopener noreferrer">DE</a></td>
+  <td class="sale-amount"><span title="$1,001 - $15,000">$1K–$15K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Agricultural - Machinery — Committees: Armed Services">Committee</span><span class="badge badge-derivative" title="Derivative: Options, warrants, or other derivatives — signals timing sensitivity">Options</span><span class="badge badge-indirect" title="Spouse — trade made by the member's spouse rather than the member directly">Spouse</span></div></td>
+  <td class="sale-desc">Deere &amp; Co - Call Option</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 6</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ADE" target="_blank" rel="noopener noreferrer">DE</a></td>
+  <td class="sale-amount"><span title="$50,001 - $100,000">$50K–$100K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Agricultural - Machinery — Committees: Armed Services">Committee</span><span class="badge badge-indirect" title="Dependent Child — trade made by the member's dependent child">Child</span></div></td>
+  <td class="sale-desc">Deere &amp; Co</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Sep 6</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3AKTOS" target="_blank" rel="noopener noreferrer">KTOS</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-rare" title="Rare: Stock rarely traded by Congress — fewer than 4 total trades">Rare</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Aerospace &amp; Defense — Committees: Armed Services">Committee</span><span class="badge badge-smallcap" title="Small Cap: Small or micro-cap stock (market cap below $2B) — less analyst coverage">Small cap</span><span class="badge badge-indirect" title="Joint — trade made jointly by the member and spouse">Joint</span></div></td>
+  <td class="sale-desc">Kratos Defense &amp; Security</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 31</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ADE" target="_blank" rel="noopener noreferrer">DE</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Agricultural - Machinery — Committees: Armed Services">Committee</span></div></td>
+  <td class="sale-desc">Deere &amp; Co</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 29</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3AXOM" target="_blank" rel="noopener noreferrer">XOM</a></td>
+  <td class="sale-amount"><span title="$250,001 - $500,000">$250K–$500K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span><span class="badge badge-indirect" title="Joint — trade made jointly by the member and spouse">Joint</span></div></td>
+  <td class="sale-desc">Exxon Mobil Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 29</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ALMT" target="_blank" rel="noopener noreferrer">LMT</a></td>
+  <td class="sale-amount"><span title="$100,001 - $250,000">$100K–$250K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-dolores-vance-whitaker.html">Dolores Vance-Whitaker</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-conviction" title="High Conviction: Trade is significantly larger than this member's typical trade size">Large</span></div></td>
+  <td class="sale-desc">Lockheed Martin Corp</td>
+</tr>
+            
+<tr>
+  <td class="sale-date">Aug 25</td>
+  <td class="sale-sym"><a class="symbol-link" href="https://www.tradingview.com/chart/?symbol=NYSE%3ALMT" target="_blank" rel="noopener noreferrer">LMT</a></td>
+  <td class="sale-amount"><span title="$1,001 - $15,000">$1K–$15K</span></td>
+  <td class="sale-trader"><div class="trader-cell"><a href="member-rosalind-achebe-ford.html">Rosalind Achebe-Ford</a><span class="party-tag party-d" title="Democrat">D</span><span class="badge badge-committee" title="Committee: Trader serves on a committee that oversees this stock's sector — potential insider knowledge — Sector: Industrials / Aerospace &amp; Defense — Committees: Armed Services">Committee</span></div></td>
+  <td class="sale-desc">Lockheed Martin Corp</td>
+</tr>
+          </tbody>
+        </table>
+      </div>
+  </section>
+  </div>
+</main>
+<footer>
+  Scores measure how unusual a trade is, not whether it is a good investment. Not investment advice.
+</footer>
+<script type="application/json" id="csv-data">{"democrat-purchases":{"filename":"democrat-purchases-2026-10-04.csv","csv":"Date,Symbol,Type,Amount,Trader,Party,Owner,Options,Score,Flags,Asset Type,Asset Description,Filing Link\r\n2026-10-01,UNH,Buy,\"$250,001 - $500,000\",Dolores Vance-Whitaker,Democrat,Child,,45,High Conviction; Committee; Indirect,Stock,UnitedHealth Group Inc,\r\n2026-09-29,NWBI,Buy,\"$100,001 - $250,000\",Dolores Vance-Whitaker,Democrat,Spouse,,68,Rare; High Conviction; Committee; Small Cap; Indirect,Stock,Northwest Bancshares,\r\n2026-09-27,MSFT,Buy,\"$1,001 - $15,000\",Rosalind Achebe-Ford,Democrat,Spouse,,10,Indirect,Stock,Microsoft Corp,\r\n2026-09-16,CRSP,Buy,\"$50,001 - $100,000\",Avery Lindqvist,Democrat,Spouse,,84,Rare; High Conviction; Committee; Small Cap; Indirect,Stock,CRISPR Therapeutics AG,\r\n2026-09-15,KTOS,Buy,\"$1,001 - $15,000\",Avery Lindqvist,Democrat,,,61,Rare; Committee; Small Cap,Stock,Kratos Defense & Security,\r\n2026-09-12,KTOS,Buy,\"$15,001 - $50,000\",Dolores Vance-Whitaker,Democrat,Joint,,41,Rare; Small Cap,Stock,Kratos Defense & Security,\r\n2026-09-09,XOM,Buy,\"$50,001 - $100,000\",Avery Lindqvist,Democrat,,,40,High Conviction; Committee,Stock,Exxon Mobil Corp,\r\n2026-09-06,MSFT,Buy,\"$100,001 - $250,000\",Avery Lindqvist,Democrat,,,40,High Conviction; Committee,Stock,Microsoft Corp,\r\n2026-08-30,XOM,Buy,\"$250,001 - $500,000\",Avery Lindqvist,Democrat,,,40,High Conviction; Committee,Stock,Exxon Mobil Corp,\r\n2026-08-29,LMT,Buy,\"$15,001 - $50,000\",Rosalind Achebe-Ford,Democrat,,,34,High Conviction; Committee,Stock,Lockheed Martin Corp,\r\n2026-08-26,JPM,Buy,\"$250,001 - $500,000\",Dolores Vance-Whitaker,Democrat,,Yes,46,High Conviction; Committee; Derivative,Stock Option,JPMorgan Chase & Co - Call Option,\r\n2026-08-26,UNH,Buy,\"$1,001 - $15,000\",Avery Lindqvist,Democrat,Joint,,19,Committee,Stock,UnitedHealth Group Inc,\r\n2026-08-24,CRSP,Buy,\"$100,001 - $250,000\",Dolores Vance-Whitaker,Democrat,,,74,Rare; High Conviction; Committee; Small Cap,Stock,CRISPR Therapeutics AG,\r\n2026-08-24,JPM,Buy,\"$250,001 - $500,000\",Dolores Vance-Whitaker,Democrat,,,36,High Conviction; Committee,Stock,JPMorgan Chase & Co,"},"democrat-sales":{"filename":"democrat-sales-2026-10-04.csv","csv":"Date,Symbol,Type,Amount,Trader,Party,Owner,Options,Score,Flags,Asset Type,Asset Description,Filing Link\r\n2026-10-02,LMT,Sell,\"$50,001 - $100,000\",Avery Lindqvist,Democrat,,,40,High Conviction; Committee,Stock,Lockheed Martin Corp,\r\n2026-09-27,JPM,Sell,\"$100,001 - $250,000\",Avery Lindqvist,Democrat,,,25,High Conviction,Stock,JPMorgan Chase & Co,\r\n2026-09-13,DE,Sell,\"$1,001 - $15,000\",Rosalind Achebe-Ford,Democrat,Spouse,Yes,35,Committee; Derivative; Indirect,Stock Option,Deere & Co - Call Option,\r\n2026-09-06,DE,Sell,\"$50,001 - $100,000\",Rosalind Achebe-Ford,Democrat,Child,,45,High Conviction; Committee; Indirect,Stock,Deere & Co,\r\n2026-09-06,KTOS,Sell,\"$100,001 - $250,000\",Rosalind Achebe-Ford,Democrat,Joint,,81,Rare; High Conviction; Committee; Small Cap,Stock,Kratos Defense & Security,\r\n2026-08-31,DE,Sell,\"$250,001 - $500,000\",Rosalind Achebe-Ford,Democrat,,,40,High Conviction; Committee,Stock,Deere & Co,\r\n2026-08-29,XOM,Sell,\"$250,001 - $500,000\",Dolores Vance-Whitaker,Democrat,Joint,,26,High Conviction,Stock,Exxon Mobil Corp,\r\n2026-08-29,LMT,Sell,\"$100,001 - $250,000\",Dolores Vance-Whitaker,Democrat,,,19,High Conviction,Stock,Lockheed Martin Corp,\r\n2026-08-25,LMT,Sell,\"$1,001 - $15,000\",Rosalind Achebe-Ford,Democrat,,,21,Committee,Stock,Lockheed Martin Corp,"}}</script>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('theme-btn');
+  function updateLabel() {
+    if (btn) btn.textContent = root.getAttribute('data-theme') === 'light' ? 'Dark mode' : 'Light mode';
+  }
+  updateLabel();
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('congress-theme', next); } catch (e) {}
+      updateLabel();
+    });
+  }
+
+  var csvDataEl = document.getElementById('csv-data');
+  var csvData = null;
+  if (csvDataEl) { try { csvData = JSON.parse(csvDataEl.textContent); } catch (e) { csvData = null; } }
+  document.querySelectorAll('[data-csv-section]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var entry = csvData && csvData[b.dataset.csvSection];
+      if (!entry) return;
+      var url = URL.createObjectURL(new Blob([entry.csv], { type: 'text/csv;charset=utf-8;' }));
+      var a = document.createElement('a');
+      a.href = url; a.download = entry.filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+  });
+})();
+</script>
+</body>
+</html>

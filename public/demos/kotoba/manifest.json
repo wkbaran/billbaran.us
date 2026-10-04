@@ -1,0 +1,68 @@
+[
+  {
+    "date": "2026-10-04",
+    "wordCount": 3,
+    "words": [
+      {
+        "word": "涼しい",
+        "definition": "cool",
+        "jlptLevel": "N4"
+      },
+      {
+        "word": "選ぶ",
+        "definition": "to choose",
+        "jlptLevel": "N4"
+      },
+      {
+        "word": "地域",
+        "definition": "region",
+        "jlptLevel": "N3"
+      }
+    ],
+    "file": "digest-2026-10-04.html"
+  },
+  {
+    "date": "2026-10-03",
+    "wordCount": 3,
+    "words": [
+      {
+        "word": "届く",
+        "definition": "to reach",
+        "jlptLevel": "N3"
+      },
+      {
+        "word": "静か",
+        "definition": "quiet",
+        "jlptLevel": "N5"
+      },
+      {
+        "word": "決める",
+        "definition": "to decide",
+        "jlptLevel": "N4"
+      }
+    ],
+    "file": "digest-2026-10-03.html"
+  },
+  {
+    "date": "2026-10-02",
+    "wordCount": 3,
+    "words": [
+      {
+        "word": "天気",
+        "definition": "weather",
+        "jlptLevel": "N5"
+      },
+      {
+        "word": "増える",
+        "definition": "to increase",
+        "jlptLevel": "N4"
+      },
+      {
+        "word": "準備",
+        "definition": "preparation",
+        "jlptLevel": "N4"
+      }
+    ],
+    "file": "digest-2026-10-02.html"
+  }
+]

@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>window.__DEMO__={"name":"kotoba","project":"kotoba","allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>言葉の世界 Saturday, October 3, 2026</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1:wght@300..900&display=swap" rel="stylesheet">
+<script>
+(() => {
+  "use strict";
+  const KEY = "kotoba.palette", THEME_KEY = "kotoba-theme";
+  const root = document.documentElement;
+  const PRESETS = [{"no":166,"names":["Deep slate green","Naples yellow","Grenadine pink"],"colors":["#112f2c","#fbe6a0","#f48067"]},{"no":151,"names":["Vandar Poel's blue","Sulphur yellow","Yellow orange"],"colors":["#064f6e","#f5ecc2","#f99d1b"]},{"no":190,"names":["Black","Ivory buff","English red"],"colors":["#111314","#ebd3a2","#d96629"]},{"no":268,"names":["Deep slate olive","Nile blue","Raw sienna"],"colors":["#253122","#bce4e5","#bb7125"]},{"no":126,"names":["Deep Lyons blue","Ivory buff","Yellow ocher"],"colors":["#1c4286","#ebd3a2","#e2b540"]},{"no":276,"names":["Black","Seashell pink","Eosine pink"],"colors":["#111314","#fdd4bd","#f37f94"]}];
+  const defaults = ["#112f2c","#fbe6a0","#f48067"];
+
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    if (t ? t === "light" : matchMedia("(prefers-color-scheme: light)").matches) root.setAttribute("data-theme", "light");
+  } catch (e) {}
+
+  function read() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? "null");
+      if (Array.isArray(saved) && saved.length === 3) return saved;
+    } catch {}
+    return defaults;
+  }
+  function apply(c) {
+    root.style.setProperty("--p-ground", c[0]);
+    root.style.setProperty("--p-ink", c[1]);
+    root.style.setProperty("--p-signal", c[2]);
+  }
+  function save(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch {} }
+  function nameOf(c) {
+    const p = PRESETS.find(p => p.colors.join() === c.join());
+    return p ? "Combination " + p.no + ": " + p.names.join(", ") : "Your own mix";
+  }
+
+  let colors = read();
+  apply(colors);
+
+  function el(tag, props = {}, ...children) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    n.append(...children);
+    return n;
+  }
+
+  function build() {
+    const mount = document.getElementById("pal-mount");
+    if (!mount) return;
+    const name = el("p", { class: "pal-name" });
+    const refresh = () => {
+      inputs.forEach(({ input }, i) => (input.value = colors[i]));
+      name.textContent = nameOf(colors);
+      presets.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === colors.join())));
+    };
+    const inputs = ["Background", "Text", "Accent"].map((label, i) => {
+      const id = "pal-" + i;
+      const input = el("input", { type: "color", id, value: colors[i] });
+      input.addEventListener("input", () => {
+        colors = colors.map((c, j) => (j === i ? input.value : c));
+        apply(colors); save(colors); refresh();
+      });
+      return { input, row: el("div", { class: "pal-field" }, input, el("label", { for: id, text: label })) };
+    });
+    const presets = el("div", { class: "pal-presets" }, ...PRESETS.map(p =>
+      el("button", {
+        type: "button", class: "pal-preset", "data-c": p.colors.join(),
+        title: "Combination " + p.no + ": " + p.names.join(", "),
+        "aria-label": "Use combination " + p.no + ", " + p.names.join(", "),
+        onclick: () => { colors = [...p.colors]; apply(colors); save(colors); refresh(); },
+      }, ...p.colors.map(c => el("span", { style: "background:" + c })))
+    ));
+    const mode = el("button", {
+      type: "button", class: "pal-mode",
+      onclick: () => {
+        const light = root.getAttribute("data-theme") !== "light";
+        if (light) root.setAttribute("data-theme", "light"); else root.removeAttribute("data-theme");
+        try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch {}
+        mode.textContent = light ? "Switch to dark" : "Switch to light";
+      },
+    });
+    mode.textContent = root.getAttribute("data-theme") === "light" ? "Switch to dark" : "Switch to light";
+    const reset = el("button", {
+      type: "button", class: "pal-reset", text: "Reset to the default colors",
+      onclick: () => { colors = [...defaults]; apply(colors); try { localStorage.removeItem(KEY); } catch {} refresh(); },
+    });
+    const panel = el("div", { class: "pal-panel", id: "pal-panel", role: "dialog", "aria-label": "Colors", hidden: "" },
+      el("p", { class: "pal-heading", text: "Colors" }),
+      el("p", { class: "pal-note", text: "Combinations from Wada Sanzo's Dictionary of Color Combinations." }),
+      presets, name, mode, ...inputs.map(x => x.row), reset);
+    const toggle = el("button", {
+      type: "button", class: "pal-toggle", "aria-expanded": "false", "aria-controls": "pal-panel", "aria-label": "Colors",
+      onclick: () => { panel.hidden = !panel.hidden; toggle.setAttribute("aria-expanded", String(!panel.hidden)); },
+    }, ...["ground", "ink", "signal"].map(k => el("span", { style: "background:var(--p-" + k + ")" })));
+    const box = el("div", { class: "pal" }, panel, toggle);
+    const close = () => { panel.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) { close(); toggle.focus(); } });
+    document.addEventListener("pointerdown", e => { if (!panel.hidden && !box.contains(e.target)) close(); });
+    mount.append(box);
+    refresh();
+  }
+  document.addEventListener("DOMContentLoaded", build);
+})();
+</script>
+<style>
+  
+  :root { --ground: var(--p-ground); --ink: var(--p-ink); --signal: var(--p-signal); color-scheme: dark; }
+  :root[data-theme="light"] {
+    --ground: var(--p-ink); --ink: var(--p-ground);
+    --signal: color-mix(in oklab, var(--p-signal) 62%, var(--p-ground)); color-scheme: light;
+  }
+  :root {
+    --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+    --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+    --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+    --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+    --muted: color-mix(in oklab, var(--ink) 55%, var(--ground));
+    --sub: color-mix(in oklab, var(--ink) 74%, var(--ground));
+    --wash: color-mix(in oklab, var(--signal) 18%, var(--ground));
+    --shadow: 0 18px 48px color-mix(in oklab, black 40%, transparent);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { font-size: 17px; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: 'M PLUS 1', system-ui, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--signal); }
+  button, input, select { font: inherit; color: inherit; }
+  h1, h2, h3, p, ol, ul { margin: 0; }
+  .wrap { max-width: 50rem; margin: 0 auto; padding: 0 1.25rem; }
+
+  /* ── Site header ── */
+  .top { display: flex; align-items: center; gap: 1.25rem; padding-top: 1rem; }
+  .brand { font-weight: 800; font-size: 1.05rem; text-decoration: none; margin-right: auto; white-space: nowrap; }
+  .nav { display: flex; gap: 1.1rem; font-size: .9rem; }
+  .nav a { text-decoration: none; color: var(--sub); padding: .4rem 0; white-space: nowrap; }
+  .nav a:hover { color: var(--ink); }
+  .nav a[aria-current] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--signal); }
+
+  /* ── Footer ── */
+  .foot { color: var(--muted); font-size: .78rem; line-height: 1.6; margin-top: 3rem; padding-bottom: 2rem; max-width: 40rem; }
+  .attribution { margin: .4rem 0 0; }
+  .attribution a { color: inherit; }
+
+  /* ── Palette control ── */
+  .pal { position: relative; }
+  .pal-toggle { display: flex; padding: 4px 6px; min-height: 2.25rem; align-items: center; border-radius: 999px;
+    background: var(--raised); border: 1px solid var(--line); cursor: pointer; }
+  .pal-toggle:hover { border-color: var(--line-strong); }
+  .pal-toggle span, .pal-preset span { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+  .pal-toggle span + span, .pal-preset span + span { margin-left: -5px; }
+  .pal-panel { position: absolute; right: 0; top: calc(100% + 8px); width: 16.5rem; padding: 1rem; display: grid; gap: .6rem; z-index: 40;
+    background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+    font-size: .85rem; line-height: 1.4; text-align: left; }
+  .pal-panel[hidden] { display: none; }
+  .pal-panel p { margin: 0; }
+  .pal-heading { font-weight: 700; font-size: 1rem; }
+  .pal-note, .pal-name { color: var(--sub); font-size: .78rem; }
+  .pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pal-preset { display: flex; justify-content: center; padding: 8px 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  .pal-preset[aria-pressed="true"] { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); }
+  .pal-field { display: flex; align-items: center; gap: .6rem; }
+  .pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+  .pal-mode, .pal-reset { font-size: .8rem; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem; cursor: pointer; text-align: left; }
+  .pal-mode:hover, .pal-reset:hover { border-color: var(--line-strong); }
+
+  @media (max-width: 640px) {
+    html { font-size: 16px; }
+    .top { gap: .9rem; }
+    .nav { gap: .8rem; font-size: .85rem; }
+  }
+  @media (max-width: 360px) {
+    .brand { font-size: .95rem; }
+    .nav { gap: .6rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+
+  /* ── The day ── */
+  .day { display: flex; align-items: baseline; gap: 1rem; margin-top: 2rem; }
+  .day h1 { font-size: 1rem; font-weight: 700; margin: 0; }
+  .day .kind { font-weight: 400; color: var(--sub); margin-left: .5rem; }
+  .daynav { margin-left: auto; display: flex; gap: .5rem; font-size: .88rem; }
+  .daynav a, .daynav > span { padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; white-space: nowrap; }
+  .daynav a:hover { border-color: var(--line-strong); }
+  .daynav > span { color: var(--muted); border-style: dashed; }
+
+  /* The day's words as tabs: they're the table of contents and the progress. */
+  .tabs { list-style: none; display: flex; gap: .25rem; padding: 0; margin: 1rem 0 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs a { display: block; padding: .5rem .9rem .6rem; text-decoration: none; font-size: 1.1rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current] { color: var(--ink); box-shadow: inset 0 -3px 0 var(--signal); }
+  .tabs a.is-review::after { content: "review"; font-size: .7rem; font-weight: 500; margin-left: .4rem; color: var(--muted); }
+
+  /* ── The card ── */
+  main { padding-bottom: 8rem; }
+  .card { padding: 2.5rem 0 1rem; }
+  .js .card:not(.current) { display: none; }
+  .facts { display: flex; gap: .9rem; align-items: baseline; font-size: .88rem; color: var(--sub); }
+  .level { font-weight: 800; color: var(--ink); }
+  .review { color: var(--signal); font-weight: 700; }
+
+  .head { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .word { font-size: clamp(5rem, 24vw, 10.5rem); font-weight: 800; line-height: 1.05; letter-spacing: .02em; margin: .5rem 0 .25rem -.04em; }
+  .say { width: 3.5rem; height: 3.5rem; border-radius: 50%; border: 1.5px solid var(--line-strong); background: none; cursor: pointer;
+    display: grid; place-items: center; flex-shrink: 0; }
+  .say svg, .ex-play svg { width: 40%; fill: currentColor; margin-left: 8%; }
+  .say:hover, .ex-play:hover { border-color: var(--signal); color: var(--signal); }
+  .playing { background: var(--signal) !important; color: var(--ground) !important; border-color: var(--signal) !important; }
+
+  /* Answer slots: a covered button until shown; "Hide" covers it again. */
+  .answers { display: grid; grid-template-columns: minmax(10rem, 1fr) 2fr; gap: 1rem; margin-top: 1.5rem; }
+  .slot { position: relative; min-height: 5.25rem; }
+  .cover { position: absolute; inset: 0; width: 100%; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: .4rem;
+    padding: .9rem 1.1rem; background: var(--surface); border: 1.5px dashed var(--line-strong); border-radius: 10px; cursor: pointer;
+    font-size: .9rem; color: var(--sub); text-align: left; }
+  .cover:hover { border-color: var(--signal); color: var(--ink); }
+  .dots { display: flex; align-items: center; gap: .35rem; }
+  .dots i { width: .7rem; height: .7rem; border-radius: 50%; border: 1.5px solid var(--line-strong); }
+  .dots i.sm { width: .45rem; height: .45rem; border-width: 1.25px; }
+  .dots-note { font-size: .75rem; color: var(--muted); }
+  .cover-label { margin-top: .1rem; }
+  .val { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; min-height: 100%;
+    padding: .9rem 1.1rem; border-left: 3px solid var(--signal); visibility: hidden; }
+  .slot.open .cover { display: none; }
+  .slot.open .val { visibility: visible; animation: in .22s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+  .reading { font-size: 1.9rem; font-weight: 500; line-height: 1.3; }
+  .meaning { font-size: 1.5rem; font-weight: 700; line-height: 1.25; }
+  .also { color: var(--sub); margin-top: .3rem; font-size: .95rem; }
+  .hide { flex-shrink: 0; font-size: .8rem; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 999px;
+    padding: .25rem .7rem; min-height: 2rem; cursor: pointer; }
+  .hide:hover { color: var(--ink); border-color: var(--line-strong); }
+
+  /* ── Context ── */
+  .context { margin-top: 3rem; }
+  .context-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .context h3 { font-size: 1rem; font-weight: 700; }
+  .chip { font-size: .82rem; padding: .35rem .8rem; border-radius: 999px; border: 1px solid var(--line-strong); background: none; cursor: pointer; min-height: 2.25rem; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  .exs { list-style: none; padding: 0; }
+  .ex { display: grid; grid-template-columns: 2.75rem 1fr; gap: .75rem; padding: 1.1rem 0; border-bottom: 1px solid var(--line); }
+  .ex-play { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--line-strong); background: none; cursor: pointer; display: grid; place-items: center; }
+  .ex .jp { font-size: 1.12rem; line-height: 2.1; max-width: 38em; }
+  :root.furi-on .ex .jp { line-height: 2.5; }
+  .tr { margin-top: .35rem; font-size: .92rem; color: var(--sub); }
+  .tr summary { cursor: pointer; width: max-content; color: var(--muted); font-size: .82rem; padding: .2rem 0; }
+  .tr summary:hover { color: var(--ink); }
+  .tr p { margin-top: .3rem; max-width: 36em; }
+  .tr mark { background: none; color: var(--ink); font-weight: 700; }
+  .src { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-top: 1rem; font-size: .88rem; color: var(--sub); }
+  .linkish { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; color: var(--sub); }
+  .linkish:hover { color: var(--ink); text-decoration-color: var(--signal); }
+
+  /* Furigana: real <rt> when .furi-on is set, otherwise a tooltip on hover or first tap. */
+  .jp ruby { position: relative; }
+  .jp rt { font-size: .52em; font-weight: 500; color: var(--sub); }
+  :root:not(.furi-on) .jp rt { display: none; }
+  :root:not(.furi-on) .jp ruby::after {
+    content: attr(data-reading); position: absolute; bottom: 100%; left: 50%;
+    transform: translate(-50%, -6px); background: var(--raised); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: 6px; padding: .25em .6em;
+    font-size: .8rem; font-weight: 600; white-space: nowrap; box-shadow: var(--shadow);
+    display: none; pointer-events: none; z-index: 20;
+  }
+  :root:not(.furi-on) .jp ruby:hover::after, :root:not(.furi-on) .jp a.tap-active ruby::after { display: block; }
+  .jp .gloss-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line-strong); }
+  .jp .gloss-link:hover { border-bottom-color: var(--signal); background: var(--surface); }
+  .jp mark { background: var(--wash); color: var(--ink); font-weight: 700; padding: 0 .12em; border-radius: 2px; box-shadow: inset 0 -2px 0 var(--signal); }
+  .jp mark rt { color: var(--signal); }
+
+  /* ── Forms: how the word conjugates; the form from the sentence is marked like the word in it ── */
+  .forms { margin-top: 3rem; }
+  /* Closed by default; the open/closed choice is remembered across words and days. */
+  .forms summary { list-style: none; cursor: pointer; padding-bottom: .6rem; border-bottom: 1px solid var(--line); }
+  .forms summary::-webkit-details-marker { display: none; }
+  .forms h3 { display: flex; align-items: baseline; font-size: 1rem; font-weight: 700; }
+  .forms h3::after { content: ""; width: .45rem; height: .45rem; margin-left: auto; align-self: center;
+    border-right: 1.5px solid var(--sub); border-bottom: 1.5px solid var(--sub); transform: translateY(-25%) rotate(45deg); transition: transform .15s; }
+  .forms[open] h3::after { transform: translateY(25%) rotate(-135deg); }
+  .forms summary:hover h3, .forms summary:hover h3 span { color: var(--ink); }
+  .forms summary:hover h3::after { border-color: var(--signal); }
+  .forms h3 span { font-weight: 400; color: var(--sub); margin-left: .5rem; }
+  .forms-note { margin: .9rem 0 .4rem; font-size: .92rem; color: var(--sub); max-width: 36em; }
+  .forms-note span { color: var(--ink); font-weight: 700; }
+  .forms table { border-collapse: collapse; width: 100%; max-width: 38rem; }
+  .forms th, .forms td { text-align: left; padding: .55rem 1rem .55rem 0; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+  .forms thead th { font-size: .8rem; font-weight: 500; color: var(--muted); padding-top: .3rem; }
+  .forms tbody th { font-size: .88rem; font-weight: 500; color: var(--sub); white-space: nowrap; width: 8.5rem; }
+  .forms tbody td { font-size: 1.12rem; }
+  .forms mark { background: var(--wash); color: var(--ink); font-weight: 700; padding: 0 .12em; border-radius: 2px; box-shadow: inset 0 -2px 0 var(--signal); }
+
+  /* ── Bottom bar: the thumb's-reach controls ── */
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: color-mix(in oklab, var(--ground) 88%, transparent);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding: .7rem 0 calc(.7rem + env(safe-area-inset-bottom)); }
+  .bar .wrap { display: flex; align-items: center; gap: .6rem; }
+  .bar button { min-height: 3rem; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; padding: 0 1rem; font-size: .95rem; }
+  .bar button:hover { border-color: var(--ink); }
+  .bar button:disabled { opacity: .4; cursor: default; }
+  .bar .count { font-size: .88rem; color: var(--sub); margin: 0 auto; }
+  .bar .primary { background: var(--signal); color: var(--ground); border-color: var(--signal); font-weight: 700; min-width: 11rem; }
+  .bar .primary:hover { border-color: var(--ink); }
+  .bar kbd { font: inherit; font-size: .72rem; opacity: .7; margin-left: .5rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 .3rem; }
+  .no-js .bar { display: none; }
+
+
+  @media (max-width: 640px) {
+    .day { flex-wrap: wrap; margin-top: 1.25rem; }
+    .answers { grid-template-columns: 1fr; }
+    /* Too narrow for three columns: the label goes above, plain and polite share a line or wrap. */
+    .forms thead { display: none; }
+    .forms tr { display: flex; flex-wrap: wrap; gap: .15rem 1.25rem; padding: .6rem 0; border-bottom: 1px solid var(--line); }
+    .forms th, .forms td { border: 0; padding: 0; }
+    .forms tbody th { flex-basis: 100%; width: auto; font-size: .8rem; }
+    .forms tbody td { font-size: 1.05rem; }
+    .forms .pol::before { content: "polite "; font-size: .75rem; color: var(--muted); }
+    .bar .count, .bar kbd { display: none; }
+    .bar .primary { flex: 1; min-width: 0; }
+    .bar .wrap { padding: 0 .75rem; }
+  }
+</style>
+</head>
+<body class="no-js">
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="index.html" lang="ja">言葉の世界</a>
+    <nav class="nav" aria-label="Site">
+      <a href="index.html">Days</a>
+      <a href="words.html">All words</a>
+      
+    </nav>
+    <div id="pal-mount"></div>
+  </header>
+
+  <div class="day">
+    <h1>Saturday, October 3, 2026</h1>
+    <nav class="daynav" aria-label="Other days">
+      <a href="digest-2026-10-02.html" rel="prev" aria-label="Previous day, Oct 2"><span aria-hidden="true">‹</span> Oct 2</a>
+      <!--next-day--><a href="digest-2026-10-04.html" rel="next" aria-label="Next day, Oct 4">Oct 4 <span aria-hidden="true">›</span></a><!--/next-day-->
+    </nav>
+  </div>
+  <ol class="tabs" aria-label="Words on this page"><li><a href="#w1" data-go="0" lang="ja">届く</a></li><li><a href="#w2" data-go="1" lang="ja">静か</a></li><li><a href="#w3" data-go="2" lang="ja">決める</a></li><li><a href="#w4" data-go="3" lang="ja" class="is-review" title="Review word">準備</a></li></ol>
+
+  <main id="cards">
+    
+  <section class="card" id="w1" data-entry aria-label="Word 1 of 4">
+    
+    <div class="facts">
+      
+      <span class="level" title="JLPT level">N3</span>
+      <span>godan verb with 'ku' ending, intransitive verb</span>
+    </div>
+    <div class="head">
+      <h2 class="word" lang="ja">届く</h2>
+      <button class="say" type="button" data-play="word" data-text="届く" aria-pressed="false" aria-label="Play 届く"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+    </div>
+
+    <div class="answers">
+      <div class="slot" data-slot="reading">
+        <button class="cover" type="button" data-show="reading"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="dots-note">3 kana</span><span class="cover-label">Show reading</span></button>
+        <div class="val">
+          <p class="reading" lang="ja">とどく</p>
+          <button class="hide" type="button" data-hide="reading">Hide</button>
+        </div>
+      </div>
+      <div class="slot" data-slot="meaning">
+        <button class="cover" type="button" data-show="meaning"><span class="cover-label">Show meaning</span></button>
+        <div class="val">
+          <div>
+            <p class="meaning">to reach</p>
+            <p class="also">Also to arrive, to be delivered</p>
+          </div>
+          <button class="hide" type="button" data-hide="meaning">Hide</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-head">
+        <h3>Where it came up</h3>
+        <button type="button" class="chip" data-furi aria-pressed="false">Furigana</button>
+      </div>
+      <ol class="exs">
+        <li class="ex">
+          <button class="ex-play" type="button" data-play="ex" data-index="0" data-text="新しい本が図書館に届いた。" aria-pressed="false" aria-label="Play this sentence"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+          <div>
+            <p class="jp" lang="ja"><ruby>新<rt>あたら</rt></ruby>しい<ruby>本<rt>ほん</rt></ruby>が<ruby>図書館<rt>としょかん</rt></ruby>に<mark><ruby>届いた<rt>とどいた</rt></ruby></mark>。</p>
+            <details class="tr"><summary>English</summary><p>The new books <mark>arrived</mark> at the library.</p></details>
+          </div>
+        </li>
+      </ol>
+      <p class="src">
+        <span>Demo sentence, written for this page. The real site links the news article it came from.</span>
+        
+      </p>
+    </div>
+
+    <details class="forms" data-forms>
+      <summary><h3>Forms <span>godan verb</span></h3></summary>
+      <p class="forms-note">In the sentence: <span lang="ja">届いた</span> (past).</p>
+      <table>
+        <thead><tr><td></td><th scope="col">Plain</th><th scope="col">Polite</th></tr></thead>
+        <tbody><tr><th scope="row">Present</th><td lang="ja">届く</td><td lang="ja" class="pol">届きます</td></tr><tr><th scope="row">Negative</th><td lang="ja">届かない</td><td lang="ja" class="pol">届きません</td></tr><tr><th scope="row">Past</th><td lang="ja"><mark>届いた</mark></td><td lang="ja" class="pol">届きました</td></tr><tr><th scope="row">Past negative</th><td lang="ja">届かなかった</td><td lang="ja" class="pol">届きませんでした</td></tr><tr><th scope="row">Te-form</th><td lang="ja" colspan="2">届いて</td></tr><tr><th scope="row">Progressive</th><td lang="ja">届いている</td><td lang="ja" class="pol">届いています</td></tr><tr><th scope="row">Volitional</th><td lang="ja">届こう</td><td lang="ja" class="pol">届きましょう</td></tr><tr><th scope="row">Potential</th><td lang="ja">届ける</td><td lang="ja" class="pol">届けます</td></tr><tr><th scope="row">Passive</th><td lang="ja">届かれる</td><td lang="ja" class="pol">届かれます</td></tr><tr><th scope="row">Causative</th><td lang="ja">届かせる</td><td lang="ja" class="pol">届かせます</td></tr><tr><th scope="row">Conditional</th><td lang="ja" colspan="2">届けば</td></tr></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section class="card" id="w2" data-entry aria-label="Word 2 of 4">
+    
+    <div class="facts">
+      
+      <span class="level" title="JLPT level">N5</span>
+      <span>na-adjective</span>
+    </div>
+    <div class="head">
+      <h2 class="word" lang="ja">静か</h2>
+      <button class="say" type="button" data-play="word" data-text="静か" aria-pressed="false" aria-label="Play 静か"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+    </div>
+
+    <div class="answers">
+      <div class="slot" data-slot="reading">
+        <button class="cover" type="button" data-show="reading"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="dots-note">3 kana</span><span class="cover-label">Show reading</span></button>
+        <div class="val">
+          <p class="reading" lang="ja">しずか</p>
+          <button class="hide" type="button" data-hide="reading">Hide</button>
+        </div>
+      </div>
+      <div class="slot" data-slot="meaning">
+        <button class="cover" type="button" data-show="meaning"><span class="cover-label">Show meaning</span></button>
+        <div class="val">
+          <div>
+            <p class="meaning">quiet</p>
+            <p class="also">Also silent, calm</p>
+          </div>
+          <button class="hide" type="button" data-hide="meaning">Hide</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-head">
+        <h3>Where it came up</h3>
+        <button type="button" class="chip" data-furi aria-pressed="false">Furigana</button>
+      </div>
+      <ol class="exs">
+        <li class="ex">
+          <button class="ex-play" type="button" data-play="ex" data-index="0" data-text="朝の公園はとても静かです。" aria-pressed="false" aria-label="Play this sentence"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+          <div>
+            <p class="jp" lang="ja"><ruby>朝<rt>あさ</rt></ruby>の<ruby>公園<rt>こうえん</rt></ruby>はとても<mark><ruby>静か<rt>しずか</rt></ruby></mark>です。</p>
+            <details class="tr"><summary>English</summary><p>The park in the morning is very <mark>quiet</mark>.</p></details>
+          </div>
+        </li>
+      </ol>
+      <p class="src">
+        <span>Demo sentence, written for this page. The real site links the news article it came from.</span>
+        
+      </p>
+    </div>
+
+    <details class="forms" data-forms>
+      <summary><h3>Forms <span>な-adjective</span></h3></summary>
+      <p class="forms-note">In the sentence: <span lang="ja">静かです</span> (present, polite).</p>
+      <table>
+        <thead><tr><td></td><th scope="col">Plain</th><th scope="col">Polite</th></tr></thead>
+        <tbody><tr><th scope="row">Present</th><td lang="ja">静かだ</td><td lang="ja" class="pol"><mark>静かです</mark></td></tr><tr><th scope="row">Negative</th><td lang="ja">静かじゃない</td><td lang="ja" class="pol">静かじゃありません</td></tr><tr><th scope="row">Past</th><td lang="ja">静かだった</td><td lang="ja" class="pol">静かでした</td></tr><tr><th scope="row">Past negative</th><td lang="ja">静かじゃなかった</td><td lang="ja" class="pol">静かじゃありませんでした</td></tr><tr><th scope="row">Te-form</th><td lang="ja" colspan="2">静かで</td></tr><tr><th scope="row">Before a noun</th><td lang="ja" colspan="2">静かな</td></tr><tr><th scope="row">Adverb</th><td lang="ja" colspan="2">静かに</td></tr></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section class="card" id="w3" data-entry aria-label="Word 3 of 4">
+    
+    <div class="facts">
+      
+      <span class="level" title="JLPT level">N4</span>
+      <span>ichidan verb, transitive verb</span>
+    </div>
+    <div class="head">
+      <h2 class="word" lang="ja">決める</h2>
+      <button class="say" type="button" data-play="word" data-text="決める" aria-pressed="false" aria-label="Play 決める"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+    </div>
+
+    <div class="answers">
+      <div class="slot" data-slot="reading">
+        <button class="cover" type="button" data-show="reading"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="dots-note">3 kana</span><span class="cover-label">Show reading</span></button>
+        <div class="val">
+          <p class="reading" lang="ja">きめる</p>
+          <button class="hide" type="button" data-hide="reading">Hide</button>
+        </div>
+      </div>
+      <div class="slot" data-slot="meaning">
+        <button class="cover" type="button" data-show="meaning"><span class="cover-label">Show meaning</span></button>
+        <div class="val">
+          <div>
+            <p class="meaning">to decide</p>
+            <p class="also">Also to choose, to settle on</p>
+          </div>
+          <button class="hide" type="button" data-hide="meaning">Hide</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-head">
+        <h3>Where it came up</h3>
+        <button type="button" class="chip" data-furi aria-pressed="false">Furigana</button>
+      </div>
+      <ol class="exs">
+        <li class="ex">
+          <button class="ex-play" type="button" data-play="ex" data-index="0" data-text="市は新しい駅の名前を決めた。" aria-pressed="false" aria-label="Play this sentence"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+          <div>
+            <p class="jp" lang="ja"><ruby>市<rt>し</rt></ruby>は<ruby>新<rt>あたら</rt></ruby>しい<ruby>駅<rt>えき</rt></ruby>の<ruby>名前<rt>なまえ</rt></ruby>を<mark><ruby>決めた<rt>きめた</rt></ruby></mark>。</p>
+            <details class="tr"><summary>English</summary><p>The city <mark>decided</mark> the name of the new station.</p></details>
+          </div>
+        </li>
+      </ol>
+      <p class="src">
+        <span>Demo sentence, written for this page. The real site links the news article it came from.</span>
+        
+      </p>
+    </div>
+
+    <details class="forms" data-forms>
+      <summary><h3>Forms <span>ichidan verb</span></h3></summary>
+      <p class="forms-note">In the sentence: <span lang="ja">決めた</span> (past).</p>
+      <table>
+        <thead><tr><td></td><th scope="col">Plain</th><th scope="col">Polite</th></tr></thead>
+        <tbody><tr><th scope="row">Present</th><td lang="ja">決める</td><td lang="ja" class="pol">決めます</td></tr><tr><th scope="row">Negative</th><td lang="ja">決めない</td><td lang="ja" class="pol">決めません</td></tr><tr><th scope="row">Past</th><td lang="ja"><mark>決めた</mark></td><td lang="ja" class="pol">決めました</td></tr><tr><th scope="row">Past negative</th><td lang="ja">決めなかった</td><td lang="ja" class="pol">決めませんでした</td></tr><tr><th scope="row">Te-form</th><td lang="ja" colspan="2">決めて</td></tr><tr><th scope="row">Progressive</th><td lang="ja">決めている</td><td lang="ja" class="pol">決めています</td></tr><tr><th scope="row">Volitional</th><td lang="ja">決めよう</td><td lang="ja" class="pol">決めましょう</td></tr><tr><th scope="row">Potential</th><td lang="ja">決められる</td><td lang="ja" class="pol">決められます</td></tr><tr><th scope="row">Passive</th><td lang="ja">決められる</td><td lang="ja" class="pol">決められます</td></tr><tr><th scope="row">Causative</th><td lang="ja">決めさせる</td><td lang="ja" class="pol">決めさせます</td></tr><tr><th scope="row">Conditional</th><td lang="ja" colspan="2">決めれば</td></tr></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section class="card is-review" id="w4" data-entry aria-label="Word 4 of 4">
+    
+    <div class="facts">
+      <span class="review">Review from Oct 2</span>
+      <span class="level" title="JLPT level">N4</span>
+      <span>noun, suru verb</span>
+    </div>
+    <div class="head">
+      <h2 class="word" lang="ja">準備</h2>
+      <button class="say" type="button" data-play="word" data-text="準備" aria-pressed="false" aria-label="Play 準備"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+    </div>
+
+    <div class="answers">
+      <div class="slot" data-slot="reading">
+        <button class="cover" type="button" data-show="reading"><span class="dots" aria-hidden="true"><i></i><i class="sm"></i><i></i><i></i></span><span class="dots-note">4 kana, 1 small</span><span class="cover-label">Show reading</span></button>
+        <div class="val">
+          <p class="reading" lang="ja">じゅんび</p>
+          <button class="hide" type="button" data-hide="reading">Hide</button>
+        </div>
+      </div>
+      <div class="slot" data-slot="meaning">
+        <button class="cover" type="button" data-show="meaning"><span class="cover-label">Show meaning</span></button>
+        <div class="val">
+          <div>
+            <p class="meaning">preparation</p>
+            <p class="also">Also arrangements, provision</p>
+          </div>
+          <button class="hide" type="button" data-hide="meaning">Hide</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="context">
+      <div class="context-head">
+        <h3>Where it came up</h3>
+        <button type="button" class="chip" data-furi aria-pressed="false">Furigana</button>
+      </div>
+      <ol class="exs">
+        <li class="ex">
+          <button class="ex-play" type="button" data-play="ex" data-index="0" data-text="町では祭りの準備が始まりました。" aria-pressed="false" aria-label="Play this sentence"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+          <div>
+            <p class="jp" lang="ja"><ruby>町<rt>まち</rt></ruby>では<ruby>祭<rt>まつ</rt></ruby>りの<mark><ruby>準備<rt>じゅんび</rt></ruby></mark>が<ruby>始<rt>はじ</rt></ruby>まりました。</p>
+            <details class="tr"><summary>English</summary><p><mark>Preparations</mark> for the festival have begun in the town.</p></details>
+          </div>
+        </li>
+      </ol>
+      <p class="src">
+        <span>Demo sentence, written for this page. The real site links the news article it came from.</span>
+        
+      </p>
+    </div>
+
+  </section>
+  </main>
+
+  <footer class="foot">
+    <p>Words collected from Japanese news and reading sites. Readings and meanings looked up on Saturday, October 3, 2026.</p>
+    <p class="attribution">This site uses the <a href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project">JMdict/EDICT</a> dictionary files, looked up via <a href="https://jisho.org/">Jisho.org</a>. These files are the property of the <a href="https://www.edrdg.org/">Electronic Dictionary Research and Development Group</a>, and are used in conformance with the Group's <a href="https://www.edrdg.org/edrdg/licence.html">licence</a>. JLPT levels from <a href="https://www.tanos.co.uk/jlpt/">Jonathan Waller's JLPT Resources</a>.</p>
+  </footer>
+</div>
+
+<div class="bar" role="toolbar" aria-label="Word controls">
+  <div class="wrap">
+    <button type="button" id="prev" aria-label="Previous word">Back</button>
+    <button type="button" id="speed" aria-label="Playback speed">Speed 1×</button>
+    <span class="count" id="count" aria-live="polite"></span>
+    <button type="button" id="next" class="primary">Show reading<kbd>Space</kbd></button>
+  </div>
+</div>
+
+<script>
+(function () {
+  document.body.classList.remove('no-js');
+  document.documentElement.classList.add('js');
+
+  /* ── Audio: recorded file at the chosen speed, else Web Speech ── */
+  var SPEED_KEY = 'kotoba-speed';
+  var speechRates = { normal: 0.9, slow: 0.65, vslow: 0.45 };
+  var speed = 'normal';
+  try { speed = localStorage.getItem(SPEED_KEY) || 'normal'; } catch (e) {}
+
+  var playingBtn = null;
+  function stopAll() {
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    document.querySelectorAll('audio').forEach(function (a) { a.pause(); a.currentTime = 0; });
+    if (playingBtn) { playingBtn.classList.remove('playing'); playingBtn.setAttribute('aria-pressed', 'false'); playingBtn = null; }
+  }
+  function say(text, done) {
+    if (!window.speechSynthesis) { done(); return; }
+    var u = new SpeechSynthesisUtterance(text); u.lang = 'ja-JP'; u.rate = speechRates[speed] || 0.9; u.onend = done;
+    speechSynthesis.speak(u);
+  }
+  function play(btn) {
+    if (btn.classList.contains('playing')) { stopAll(); return; }
+    stopAll();
+    playingBtn = btn; btn.classList.add('playing'); btn.setAttribute('aria-pressed', 'true');
+    var entry = btn.closest('[data-entry]');
+    var sel = btn.dataset.play === 'word' ? '.audio-word' : '.audio-ex[data-index="' + btn.dataset.index + '"]';
+    var el = entry.querySelector(sel + '[data-speed="' + speed + '"]') || entry.querySelector(sel + '[data-speed="normal"]');
+    function done() { if (playingBtn === btn) stopAll(); }
+    if (el) { el.currentTime = 0; el.onended = done; el.play().catch(function () { say(btn.dataset.text, done); }); }
+    else say(btn.dataset.text, done);
+  }
+
+  /* ── Saved copy of the article, for when the source link is dead ── */
+  function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function openSaved(btn) {
+    var win = window.open('', '_blank'); if (!win) return;
+    var text = escapeHtml(btn.dataset.saved || ''), src = escapeHtml(btn.dataset.src || '');
+    win.document.write('<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Saved article text</title><style>body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.9;white-space:pre-wrap}.note{color:#666;font-size:.85rem;border-bottom:1px solid #ddd;padding-bottom:1rem;margin-bottom:1rem;white-space:normal}</style></head><body><p class="note">Saved copy of the article, in case the original link no longer works.<br>Original: <a href="' + src + '">' + src + '</a></p>' + text + '</body></html>');
+    win.document.close();
+  }
+
+  /* ── Word-by-word flow ── */
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[data-go]'));
+  var nextBtn = document.getElementById('next'), prevBtn = document.getElementById('prev');
+  var count = document.getElementById('count'), speedBtn = document.getElementById('speed');
+  var i = Math.max(0, cards.findIndex(function (c) { return '#' + c.id === location.hash; }));
+
+  function isOpen(c, slot) { return c.querySelector('[data-slot="' + slot + '"]').classList.contains('open'); }
+  function setOpen(slot, open) {
+    var s = cards[i].querySelector('[data-slot="' + slot + '"]');
+    s.classList.toggle('open', open);
+    // Keep focus on the matching control so keyboard users don't lose their place.
+    var target = s.querySelector(open ? '[data-hide]' : '[data-show]');
+    if (s.contains(document.activeElement)) target.focus({ preventScroll: true });
+    render();
+  }
+  function render() {
+    cards.forEach(function (c, j) { c.classList.toggle('current', j === i); });
+    tabs.forEach(function (t, j) { if (j === i) t.setAttribute('aria-current', 'step'); else t.removeAttribute('aria-current'); });
+    var c = cards[i], last = i === cards.length - 1;
+    var label = !isOpen(c, 'reading') ? 'Show reading' : !isOpen(c, 'meaning') ? 'Show meaning' : last ? 'Done for today' : 'Next word';
+    nextBtn.firstChild.nodeValue = label;
+    nextBtn.disabled = label === 'Done for today';
+    prevBtn.disabled = i === 0;
+    count.textContent = 'Word ' + (i + 1) + ' of ' + cards.length;
+  }
+  function go(j) {
+    if (j < 0 || j >= cards.length) return;
+    stopAll(); i = j; history.replaceState(null, '', '#' + cards[i].id); render(); window.scrollTo({ top: 0 });
+  }
+  function advance() {
+    var c = cards[i];
+    if (!isOpen(c, 'reading')) setOpen('reading', true);
+    else if (!isOpen(c, 'meaning')) setOpen('meaning', true);
+    else go(i + 1);
+  }
+
+  nextBtn.addEventListener('click', advance);
+  prevBtn.addEventListener('click', function () { go(i - 1); });
+  tabs.forEach(function (t, j) { t.addEventListener('click', function (e) { e.preventDefault(); go(j); }); });
+
+  document.addEventListener('click', function (e) {
+    var b;
+    if ((b = e.target.closest('[data-play]'))) play(b);
+    else if ((b = e.target.closest('[data-saved]'))) openSaved(b);
+    else if ((b = e.target.closest('[data-show]'))) setOpen(b.dataset.show, true);
+    else if ((b = e.target.closest('[data-hide]'))) setOpen(b.dataset.hide, false);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target.closest('input, textarea, select, summary, a, button:not(#next)') || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); advance(); }
+    else if (e.key === 'ArrowRight') go(i + 1);
+    else if (e.key === 'ArrowLeft') go(i - 1);
+    else if (e.key === 'p') cards[i].querySelector('.say').click();
+    else if (e.key === 'h') { setOpen('reading', false); setOpen('meaning', false); }
+  });
+
+  var SPEEDS = ['normal', 'slow', 'vslow'], SPEED_LABEL = { normal: '1×', slow: '¾×', vslow: '½×' };
+  function showSpeed() { speedBtn.textContent = 'Speed ' + SPEED_LABEL[speed]; }
+  speedBtn.addEventListener('click', function () {
+    speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % 3];
+    try { localStorage.setItem(SPEED_KEY, speed); } catch (e) {}
+    showSpeed();
+  });
+  showSpeed();
+
+  /* ── Furigana on/off, remembered ── */
+  var furi = false;
+  try { furi = localStorage.getItem('kotoba-furigana') === 'on'; } catch (e) {}
+  function showFuri() {
+    document.documentElement.classList.toggle('furi-on', furi);
+    document.querySelectorAll('[data-furi]').forEach(function (b) { b.setAttribute('aria-pressed', String(furi)); });
+  }
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('[data-furi]')) return;
+    furi = !furi; try { localStorage.setItem('kotoba-furigana', furi ? 'on' : 'off'); } catch (x) {}
+    showFuri();
+  });
+  showFuri();
+
+  /* ── Forms table open/closed, remembered ── */
+  var formsOpen = false;
+  try { formsOpen = localStorage.getItem('kotoba-forms') === 'open'; } catch (e) {}
+  document.querySelectorAll('[data-forms]').forEach(function (d) { d.open = formsOpen; });
+  // toggle doesn't bubble, so listen in the capture phase.
+  document.addEventListener('toggle', function (e) {
+    if (!e.target.matches || !e.target.matches('[data-forms]') || e.target.open === formsOpen) return;
+    formsOpen = e.target.open;
+    try { localStorage.setItem('kotoba-forms', formsOpen ? 'open' : 'closed'); } catch (x) {}
+    document.querySelectorAll('[data-forms]').forEach(function (d) { d.open = formsOpen; });
+  }, true);
+
+  /* Furigana tap-to-reveal on touch: with furigana off, the first tap on a
+     linked word shows its reading instead of following the link; a second
+     tap follows it. Mouse clicks and keyboard activation navigate at once. */
+  var lastPointer = '';
+  document.addEventListener('pointerdown', function (e) { lastPointer = e.pointerType; }, true);
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('.jp a');
+    if (link && !furi && e.detail !== 0 && lastPointer === 'touch' && link.querySelector('ruby') && !link.classList.contains('tap-active')) {
+      e.preventDefault();
+      document.querySelectorAll('.tap-active').forEach(function (el) { el.classList.remove('tap-active'); });
+      link.classList.add('tap-active');
+      return;
+    }
+    document.querySelectorAll('.tap-active').forEach(function (el) { if (!el.contains(e.target)) el.classList.remove('tap-active'); });
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>window.__DEMO__={"name":"kotoba","project":"kotoba","allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>言葉の世界 All words</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1:wght@300..900&display=swap" rel="stylesheet">
+<script>
+(() => {
+  "use strict";
+  const KEY = "kotoba.palette", THEME_KEY = "kotoba-theme";
+  const root = document.documentElement;
+  const PRESETS = [{"no":166,"names":["Deep slate green","Naples yellow","Grenadine pink"],"colors":["#112f2c","#fbe6a0","#f48067"]},{"no":151,"names":["Vandar Poel's blue","Sulphur yellow","Yellow orange"],"colors":["#064f6e","#f5ecc2","#f99d1b"]},{"no":190,"names":["Black","Ivory buff","English red"],"colors":["#111314","#ebd3a2","#d96629"]},{"no":268,"names":["Deep slate olive","Nile blue","Raw sienna"],"colors":["#253122","#bce4e5","#bb7125"]},{"no":126,"names":["Deep Lyons blue","Ivory buff","Yellow ocher"],"colors":["#1c4286","#ebd3a2","#e2b540"]},{"no":276,"names":["Black","Seashell pink","Eosine pink"],"colors":["#111314","#fdd4bd","#f37f94"]}];
+  const defaults = ["#112f2c","#fbe6a0","#f48067"];
+
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    if (t ? t === "light" : matchMedia("(prefers-color-scheme: light)").matches) root.setAttribute("data-theme", "light");
+  } catch (e) {}
+
+  function read() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? "null");
+      if (Array.isArray(saved) && saved.length === 3) return saved;
+    } catch {}
+    return defaults;
+  }
+  function apply(c) {
+    root.style.setProperty("--p-ground", c[0]);
+    root.style.setProperty("--p-ink", c[1]);
+    root.style.setProperty("--p-signal", c[2]);
+  }
+  function save(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch {} }
+  function nameOf(c) {
+    const p = PRESETS.find(p => p.colors.join() === c.join());
+    return p ? "Combination " + p.no + ": " + p.names.join(", ") : "Your own mix";
+  }
+
+  let colors = read();
+  apply(colors);
+
+  function el(tag, props = {}, ...children) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    n.append(...children);
+    return n;
+  }
+
+  function build() {
+    const mount = document.getElementById("pal-mount");
+    if (!mount) return;
+    const name = el("p", { class: "pal-name" });
+    const refresh = () => {
+      inputs.forEach(({ input }, i) => (input.value = colors[i]));
+      name.textContent = nameOf(colors);
+      presets.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === colors.join())));
+    };
+    const inputs = ["Background", "Text", "Accent"].map((label, i) => {
+      const id = "pal-" + i;
+      const input = el("input", { type: "color", id, value: colors[i] });
+      input.addEventListener("input", () => {
+        colors = colors.map((c, j) => (j === i ? input.value : c));
+        apply(colors); save(colors); refresh();
+      });
+      return { input, row: el("div", { class: "pal-field" }, input, el("label", { for: id, text: label })) };
+    });
+    const presets = el("div", { class: "pal-presets" }, ...PRESETS.map(p =>
+      el("button", {
+        type: "button", class: "pal-preset", "data-c": p.colors.join(),
+        title: "Combination " + p.no + ": " + p.names.join(", "),
+        "aria-label": "Use combination " + p.no + ", " + p.names.join(", "),
+        onclick: () => { colors = [...p.colors]; apply(colors); save(colors); refresh(); },
+      }, ...p.colors.map(c => el("span", { style: "background:" + c })))
+    ));
+    const mode = el("button", {
+      type: "button", class: "pal-mode",
+      onclick: () => {
+        const light = root.getAttribute("data-theme") !== "light";
+        if (light) root.setAttribute("data-theme", "light"); else root.removeAttribute("data-theme");
+        try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch {}
+        mode.textContent = light ? "Switch to dark" : "Switch to light";
+      },
+    });
+    mode.textContent = root.getAttribute("data-theme") === "light" ? "Switch to dark" : "Switch to light";
+    const reset = el("button", {
+      type: "button", class: "pal-reset", text: "Reset to the default colors",
+      onclick: () => { colors = [...defaults]; apply(colors); try { localStorage.removeItem(KEY); } catch {} refresh(); },
+    });
+    const panel = el("div", { class: "pal-panel", id: "pal-panel", role: "dialog", "aria-label": "Colors", hidden: "" },
+      el("p", { class: "pal-heading", text: "Colors" }),
+      el("p", { class: "pal-note", text: "Combinations from Wada Sanzo's Dictionary of Color Combinations." }),
+      presets, name, mode, ...inputs.map(x => x.row), reset);
+    const toggle = el("button", {
+      type: "button", class: "pal-toggle", "aria-expanded": "false", "aria-controls": "pal-panel", "aria-label": "Colors",
+      onclick: () => { panel.hidden = !panel.hidden; toggle.setAttribute("aria-expanded", String(!panel.hidden)); },
+    }, ...["ground", "ink", "signal"].map(k => el("span", { style: "background:var(--p-" + k + ")" })));
+    const box = el("div", { class: "pal" }, panel, toggle);
+    const close = () => { panel.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) { close(); toggle.focus(); } });
+    document.addEventListener("pointerdown", e => { if (!panel.hidden && !box.contains(e.target)) close(); });
+    mount.append(box);
+    refresh();
+  }
+  document.addEventListener("DOMContentLoaded", build);
+})();
+</script>
+<style>
+  
+  :root { --ground: var(--p-ground); --ink: var(--p-ink); --signal: var(--p-signal); color-scheme: dark; }
+  :root[data-theme="light"] {
+    --ground: var(--p-ink); --ink: var(--p-ground);
+    --signal: color-mix(in oklab, var(--p-signal) 62%, var(--p-ground)); color-scheme: light;
+  }
+  :root {
+    --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+    --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+    --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+    --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+    --muted: color-mix(in oklab, var(--ink) 55%, var(--ground));
+    --sub: color-mix(in oklab, var(--ink) 74%, var(--ground));
+    --wash: color-mix(in oklab, var(--signal) 18%, var(--ground));
+    --shadow: 0 18px 48px color-mix(in oklab, black 40%, transparent);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { font-size: 17px; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: 'M PLUS 1', system-ui, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--signal); }
+  button, input, select { font: inherit; color: inherit; }
+  h1, h2, h3, p, ol, ul { margin: 0; }
+  .wrap { max-width: 50rem; margin: 0 auto; padding: 0 1.25rem; }
+
+  /* ── Site header ── */
+  .top { display: flex; align-items: center; gap: 1.25rem; padding-top: 1rem; }
+  .brand { font-weight: 800; font-size: 1.05rem; text-decoration: none; margin-right: auto; white-space: nowrap; }
+  .nav { display: flex; gap: 1.1rem; font-size: .9rem; }
+  .nav a { text-decoration: none; color: var(--sub); padding: .4rem 0; white-space: nowrap; }
+  .nav a:hover { color: var(--ink); }
+  .nav a[aria-current] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--signal); }
+
+  /* ── Footer ── */
+  .foot { color: var(--muted); font-size: .78rem; line-height: 1.6; margin-top: 3rem; padding-bottom: 2rem; max-width: 40rem; }
+  .attribution { margin: .4rem 0 0; }
+  .attribution a { color: inherit; }
+
+  /* ── Palette control ── */
+  .pal { position: relative; }
+  .pal-toggle { display: flex; padding: 4px 6px; min-height: 2.25rem; align-items: center; border-radius: 999px;
+    background: var(--raised); border: 1px solid var(--line); cursor: pointer; }
+  .pal-toggle:hover { border-color: var(--line-strong); }
+  .pal-toggle span, .pal-preset span { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+  .pal-toggle span + span, .pal-preset span + span { margin-left: -5px; }
+  .pal-panel { position: absolute; right: 0; top: calc(100% + 8px); width: 16.5rem; padding: 1rem; display: grid; gap: .6rem; z-index: 40;
+    background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+    font-size: .85rem; line-height: 1.4; text-align: left; }
+  .pal-panel[hidden] { display: none; }
+  .pal-panel p { margin: 0; }
+  .pal-heading { font-weight: 700; font-size: 1rem; }
+  .pal-note, .pal-name { color: var(--sub); font-size: .78rem; }
+  .pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pal-preset { display: flex; justify-content: center; padding: 8px 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  .pal-preset[aria-pressed="true"] { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); }
+  .pal-field { display: flex; align-items: center; gap: .6rem; }
+  .pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+  .pal-mode, .pal-reset { font-size: .8rem; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem; cursor: pointer; text-align: left; }
+  .pal-mode:hover, .pal-reset:hover { border-color: var(--line-strong); }
+
+  @media (max-width: 640px) {
+    html { font-size: 16px; }
+    .top { gap: .9rem; }
+    .nav { gap: .8rem; font-size: .85rem; }
+  }
+  @media (max-width: 360px) {
+    .brand { font-size: .95rem; }
+    .nav { gap: .6rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+  main { padding-top: 2.25rem; }
+  .page-title { font-size: 1.6rem; font-weight: 800; line-height: 1.2; }
+  .lede { color: var(--sub); margin-top: .35rem; }
+  .empty { margin-top: 2rem; padding: 1.25rem 1.4rem; border: 1.5px dashed var(--line-strong); border-radius: 10px; color: var(--sub); max-width: 34rem; }
+  .empty code { font-size: .9em; color: var(--ink); background: var(--surface); padding: .1em .35em; border-radius: 4px; }
+  
+  .tools { position: sticky; top: 0; z-index: 20; margin: 1.5rem -1.25rem 0; padding: .75rem 1.25rem; display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center;
+    background: color-mix(in oklab, var(--ground) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .search { flex: 1 1 100%; min-width: 0; min-height: 2.75rem; padding: 0 .9rem; border-radius: 10px; border: 1.5px solid var(--line-strong); background: var(--surface); font-size: 1rem; }
+  .search:focus { border-color: var(--signal); outline: none; }
+  .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: .4rem .65rem; min-height: 2.5rem; cursor: pointer; color: var(--sub); font-size: .88rem; }
+  .seg button + button { border-left: 1px solid var(--line-strong); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--ink); background: var(--surface); }
+  .sort { min-height: 2.5rem; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--ground); padding: 0 .5rem; font-size: .88rem; }
+  .chip { min-height: 2.5rem; padding: 0 .9rem; border-radius: 999px; border: 1px solid var(--line-strong); background: none; cursor: pointer; font-size: .88rem; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  .status { color: var(--muted); font-size: .85rem; margin: .9rem 0 .25rem; }
+
+  .words { list-style: none; padding: 0; }
+  .words li { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr 2.2rem 4.5rem; gap: .25rem 1rem; align-items: baseline;
+    padding: .75rem 0; border-bottom: 1px solid var(--line); }
+  .words li[hidden] { display: none; }
+  .words .w { text-decoration: none; display: flex; flex-direction: column; }
+  .words .w b { font-size: 1.35rem; font-weight: 700; line-height: 1.3; }
+  .words .w span { font-size: .85rem; color: var(--sub); }
+  .words .w:hover b { color: var(--signal); }
+  .words .m i { color: var(--muted); }
+  .words .lv { font-weight: 800; font-size: .85rem; }
+  .words .dt { color: var(--muted); font-size: .8rem; text-align: right; white-space: nowrap; }
+  .m-cover { display: none; justify-self: start; font-size: .82rem; color: var(--sub); background: var(--surface); border: 1.5px dashed var(--line-strong);
+    border-radius: 8px; padding: .3rem .8rem; min-height: 2.25rem; cursor: pointer; }
+  .m-cover:hover { border-color: var(--signal); color: var(--ink); }
+  .hide-en .words li:not(.shown) .m { display: none; }
+  .hide-en .words li:not(.shown) .m-cover { display: block; }
+  .no-match { margin-top: 1.5rem; }
+  .no-match[hidden] { display: none; }
+  .linkish { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  @media (max-width: 640px) {
+    .words li { grid-template-columns: 1fr auto; }
+    .words .m, .words .m-cover { grid-column: 1 / -1; grid-row: 2; }
+    .words .lv { grid-column: 2; grid-row: 1; text-align: right; }
+    .words .dt { display: none; }
+    .tools { gap: .5rem; }
+    .search { flex-basis: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="index.html" lang="ja">言葉の世界</a>
+    <nav class="nav" aria-label="Site">
+      <a href="index.html">Days</a>
+      <a href="words.html" aria-current="page">All words</a>
+      
+    </nav>
+    <div id="pal-mount"></div>
+  </header>
+  <main>
+
+    <h1 class="page-title">All words</h1>
+    <p class="lede">Every word so far: 9 words from 3 days. Select a word to open it on its day.</p>
+    <div class="tools" role="search">
+      <input class="search" id="q" type="search" placeholder="Search kanji, kana or English" aria-label="Search words" autocomplete="off">
+      <div class="seg" role="group" aria-label="JLPT level" id="levels">
+        <button type="button" data-level="" aria-pressed="true">All</button><button type="button" data-level="N5" aria-pressed="false">N5</button><button type="button" data-level="N4" aria-pressed="false">N4</button><button type="button" data-level="N3" aria-pressed="false">N3</button><button type="button" data-level="N2" aria-pressed="false">N2</button><button type="button" data-level="N1" aria-pressed="false">N1</button>
+      </div>
+      <select class="sort" id="sort" aria-label="Sort order">
+        <option value="new">Newest first</option>
+        <option value="old">Oldest first</option>
+        <option value="en">English A to Z</option>
+        <option value="kana">Reading あ to ん</option>
+      </select>
+      <button class="chip" type="button" id="hide" aria-pressed="false">Hide English</button>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+    <ol class="words" id="words">
+      <li data-date="2026-10-04" data-level="N4" data-en="cool" data-kana="すずしい" data-q="涼しい すずしい cool">
+        <a class="w" href="digest-2026-10-04.html#w1"><b lang="ja">涼しい</b><span lang="ja">すずしい</span></a>
+        <span class="m">cool</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N4</span>
+        <span class="dt">Oct 4</span>
+      </li>
+      <li data-date="2026-10-04" data-level="N4" data-en="to choose" data-kana="えらぶ" data-q="選ぶ えらぶ to choose">
+        <a class="w" href="digest-2026-10-04.html#w2"><b lang="ja">選ぶ</b><span lang="ja">えらぶ</span></a>
+        <span class="m">to choose</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N4</span>
+        <span class="dt">Oct 4</span>
+      </li>
+      <li data-date="2026-10-04" data-level="N3" data-en="region" data-kana="ちいき" data-q="地域 ちいき region">
+        <a class="w" href="digest-2026-10-04.html#w3"><b lang="ja">地域</b><span lang="ja">ちいき</span></a>
+        <span class="m">region</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N3</span>
+        <span class="dt">Oct 4</span>
+      </li>
+      <li data-date="2026-10-03" data-level="N3" data-en="to reach" data-kana="とどく" data-q="届く とどく to reach">
+        <a class="w" href="digest-2026-10-03.html#w1"><b lang="ja">届く</b><span lang="ja">とどく</span></a>
+        <span class="m">to reach</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N3</span>
+        <span class="dt">Oct 3</span>
+      </li>
+      <li data-date="2026-10-03" data-level="N5" data-en="quiet" data-kana="しずか" data-q="静か しずか quiet">
+        <a class="w" href="digest-2026-10-03.html#w2"><b lang="ja">静か</b><span lang="ja">しずか</span></a>
+        <span class="m">quiet</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N5</span>
+        <span class="dt">Oct 3</span>
+      </li>
+      <li data-date="2026-10-03" data-level="N4" data-en="to decide" data-kana="きめる" data-q="決める きめる to decide">
+        <a class="w" href="digest-2026-10-03.html#w3"><b lang="ja">決める</b><span lang="ja">きめる</span></a>
+        <span class="m">to decide</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N4</span>
+        <span class="dt">Oct 3</span>
+      </li>
+      <li data-date="2026-10-02" data-level="N5" data-en="weather" data-kana="てんき" data-q="天気 てんき weather">
+        <a class="w" href="digest-2026-10-02.html#w1"><b lang="ja">天気</b><span lang="ja">てんき</span></a>
+        <span class="m">weather</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N5</span>
+        <span class="dt">Oct 2</span>
+      </li>
+      <li data-date="2026-10-02" data-level="N4" data-en="to increase" data-kana="ふえる" data-q="増える ふえる to increase">
+        <a class="w" href="digest-2026-10-02.html#w2"><b lang="ja">増える</b><span lang="ja">ふえる</span></a>
+        <span class="m">to increase</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N4</span>
+        <span class="dt">Oct 2</span>
+      </li>
+      <li data-date="2026-10-02" data-level="N4" data-en="preparation" data-kana="じゅんび" data-q="準備 じゅんび preparation">
+        <a class="w" href="digest-2026-10-02.html#w3"><b lang="ja">準備</b><span lang="ja">じゅんび</span></a>
+        <span class="m">preparation</span>
+        <button class="m-cover" type="button">Show meaning</button>
+        <span class="lv">N4</span>
+        <span class="dt">Oct 2</span>
+      </li>
+    </ol>
+    <p class="empty no-match" id="none" hidden>No words match. Try the kana spelling, a shorter English word, or <button type="button" class="linkish" id="clear">clear the search and level</button>.</p>
+  </main>
+  <footer class="foot">
+    <p>言葉の世界, a few Japanese words a day from real news and reading sites.</p>
+    <p class="attribution">This site uses the <a href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project">JMdict/EDICT</a> dictionary files, looked up via <a href="https://jisho.org/">Jisho.org</a>. These files are the property of the <a href="https://www.edrdg.org/">Electronic Dictionary Research and Development Group</a>, and are used in conformance with the Group's <a href="https://www.edrdg.org/edrdg/licence.html">licence</a>. JLPT levels from <a href="https://www.tanos.co.uk/jlpt/">Jonathan Waller's JLPT Resources</a>.</p>
+  </footer>
+</div>
+<script>
+(function () {
+
+  var list = document.getElementById('words'), q = document.getElementById('q'), sort = document.getElementById('sort');
+  var status = document.getElementById('status'), none = document.getElementById('none'), hide = document.getElementById('hide');
+  var items = Array.prototype.slice.call(list.children), level = '';
+  // Katakana to hiragana, so "カメラ" and "かめら" find the same words.
+  function norm(s) { return s.toLowerCase().trim().replace(/[\u30a1-\u30f6]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); }); }
+  items.forEach(function (li) { li.dataset.nq = norm(li.dataset.q); });
+  var collator = new Intl.Collator('ja');
+  var cmp = {
+    'new': function (a, b) { return b.dataset.date.localeCompare(a.dataset.date); },
+    old: function (a, b) { return a.dataset.date.localeCompare(b.dataset.date); },
+    en: function (a, b) { return a.dataset.en.localeCompare(b.dataset.en); },
+    kana: function (a, b) { return collator.compare(a.dataset.kana, b.dataset.kana); }
+  };
+  function update() {
+    var term = norm(q.value), shown = 0;
+    items.forEach(function (li) {
+      var ok = (!term || li.dataset.nq.indexOf(term) >= 0) && (!level || li.dataset.level === level);
+      li.hidden = !ok; if (ok) shown++;
+    });
+    status.textContent = shown === items.length ? 'Showing all ' + shown + ' words' : 'Showing ' + shown + ' of ' + items.length + ' words';
+    none.hidden = shown > 0;
+  }
+  function resort() { items.slice().sort(cmp[sort.value]).forEach(function (li) { list.appendChild(li); }); }
+  q.addEventListener('input', update);
+  sort.addEventListener('change', resort);
+  document.getElementById('levels').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    level = b.dataset.level;
+    this.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    update();
+  });
+  document.getElementById('clear').addEventListener('click', function () {
+    q.value = ''; document.querySelector('#levels [data-level=""]').click(); q.focus();
+  });
+  var hidden = false;
+  try { hidden = localStorage.getItem('kotoba-words-hide-en') === 'on'; } catch (e) {}
+  function showHide() {
+    document.documentElement.classList.toggle('hide-en', hidden);
+    hide.setAttribute('aria-pressed', String(hidden));
+    items.forEach(function (li) { li.classList.remove('shown'); });
+  }
+  hide.addEventListener('click', function () {
+    hidden = !hidden; try { localStorage.setItem('kotoba-words-hide-en', hidden ? 'on' : 'off'); } catch (e) {}
+    showHide();
+  });
+  list.addEventListener('click', function (e) {
+    var c = e.target.closest('.m-cover'); if (!c) return;
+    var li = c.closest('li'); li.classList.add('shown');
+  });
+  showHide(); update();
+})();
+</script>
+</body>
+</html>

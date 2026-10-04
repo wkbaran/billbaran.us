@@ -1,0 +1,79 @@
+---
+import '../styles/global.css';
+import { SITE } from '../site';
+
+interface Props { title?: string; description?: string; current?: 'home' | 'projects' | 'llm' }
+const { title, description = SITE.summary, current } = Astro.props;
+const pageTitle = title ? `${title} · ${SITE.name}` : SITE.title;
+const nav = [
+  { href: '/#projects', label: 'Projects', key: 'projects' },
+  { href: '/llm-workflows/', label: 'LLM workflows', key: 'llm' },
+  { href: '/#skills', label: 'Skills', key: '', opt: true },
+  { href: '/#experience', label: 'Experience', key: '', opt: true },
+  { href: '/#contact', label: 'Contact', key: '' },
+];
+---
+<!doctype html>
+<html lang="en" data-palette={SITE.palette}>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{pageTitle}</title>
+  <meta name="description" content={description} />
+  <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+  <meta property="og:title" content={pageTitle} />
+  <meta property="og:description" content={description} />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content={new URL(Astro.url.pathname, Astro.site)} />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet" />
+  <script is:inline>
+    try { var t = localStorage.getItem('billbaran.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script is:inline src="/scripts/palette.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">Bill Baran<span>.</span></a>
+      <nav aria-label="Site">
+        {nav.map((n) => (
+          <a href={n.href} class={n.opt ? 'opt' : undefined} aria-current={current && n.key === current ? 'page' : undefined}>{n.label}</a>
+        ))}
+      </nav>
+      <button class="theme-btn" type="button" id="theme-btn" aria-label="Switch light or dark mode">◐</button>
+    </div>
+  </header>
+  <main id="main">
+    <slot />
+  </main>
+  <footer class="foot">
+    <div class="wrap">
+      <span>© {new Date().getFullYear()} Bill Baran · Boise, Idaho</span>
+      <span>
+        <a href={SITE.github}>GitHub</a> ·
+        <a href="https://github.com/wkbaran/billbaran.us">Source for this site</a> ·
+        Static site on S3 + CloudFront
+      </span>
+    </div>
+  </footer>
+  <script is:inline>
+    (function () {
+      var btn = document.getElementById('theme-btn');
+      btn.addEventListener('click', function () {
+        var root = document.documentElement;
+        var next = root.dataset.theme === 'light' ? 'dark' : 'light';
+        root.dataset.theme = next;
+        try { localStorage.setItem('billbaran.theme', next); } catch (e) {}
+      });
+    })();
+  </script>
+  <style>
+    .skip { position: absolute; left: -999px; top: 0.5rem; z-index: 50; background: var(--signal); color: var(--on-signal); padding: 0.4rem 0.8rem; }
+    .skip:focus { left: 0.5rem; }
+  </style>
+</body>
+</html>

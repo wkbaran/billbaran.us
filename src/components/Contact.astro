@@ -1,0 +1,27 @@
+---
+import { SITE } from '../site';
+---
+<div class="contact">
+  <button type="button" class="btn btn-signal" id="email-btn" data-u={SITE.email.user} data-d={SITE.email.domain}>Show email address</button>
+  <a class="btn" href={SITE.github}>GitHub · wkbaran</a>
+</div>
+<p class="muted note" id="email-note">The address appears when you click, which keeps it out of spam scrapers.</p>
+<script is:inline>
+  (function () {
+    var b = document.getElementById('email-btn');
+    b.addEventListener('click', function () {
+      var a = b.dataset.u + '@' + b.dataset.d;
+      var link = document.createElement('a');
+      link.href = 'mailto:' + a;
+      link.textContent = a;
+      link.className = 'btn btn-signal';
+      b.replaceWith(link);
+      link.focus();
+      document.getElementById('email-note').textContent = 'Email works best. I read everything that reaches me.';
+    });
+  })();
+</script>
+<style>
+  .contact { display: flex; flex-wrap: wrap; gap: .7rem; }
+  .note { margin-top: .9rem; font-size: .88rem; }
+</style>

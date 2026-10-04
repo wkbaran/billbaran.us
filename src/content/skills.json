@@ -1,0 +1,20 @@
+[
+  { "id": "architecture", "group": "Software architecture", "order": 1,
+    "items": ["System integration", "Event & queue-driven design", "Static-first publishing", "API design (REST, SOAP)", "Long-lived systems & migrations"] },
+  { "id": "aws", "group": "AWS cloud", "order": 2,
+    "items": ["CloudFormation", "S3 + CloudFront", "Lambda", "SQS", "Route 53", "IAM least-privilege", "ECR", "Bedrock"] },
+  { "id": "devops", "group": "Docker, IaC & CI/CD", "order": 3,
+    "items": ["Docker & Compose", "Infrastructure as code", "GitHub Actions", "Jenkins", "Gerrit code review", "Scheduled workers (supercronic)"] },
+  { "id": "java", "group": "Java", "order": 4,
+    "items": ["Spring / Spring Boot", "Micronaut", "Grails", "Groovy", "JUnit"] },
+  { "id": "ts", "group": "TypeScript & Node", "order": 5,
+    "items": ["Node.js", "TypeScript", "Vitest / node:test", "Playwright", "Zod"] },
+  { "id": "llm", "group": "LLM & agent engineering", "order": 6,
+    "items": ["MCP servers", "Claude Code", "Agent skills & cron workflows", "Local models (Ollama, Qwen)", "Eval-driven prompt & classifier tuning"] },
+  { "id": "data", "group": "Data", "order": 7,
+    "items": ["SQL", "MySQL", "SQLite", "RDBMS administration", "PDF & OCR parsing pipelines"] },
+  { "id": "security", "group": "Security & compliance", "order": 8,
+    "items": ["PCI DSS", "SOX", "Web app penetration testing", "PII handling", "Encryption (incl. WebCrypto)"] },
+  { "id": "payments", "group": "Payments & government systems", "order": 9,
+    "items": ["Payment processing services", "Scheduled & recurring payments", "Partner disbursements", "Licensing systems"] }
+]

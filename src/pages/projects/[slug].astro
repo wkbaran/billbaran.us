@@ -1,0 +1,104 @@
+---
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+
+export async function getStaticPaths() {
+  const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+  return projects.map((project, i) => ({
+    params: { slug: project.id },
+    props: { project, next: projects[(i + 1) % projects.length] },
+  }));
+}
+
+interface Props { project: CollectionEntry<'projects'>; next: CollectionEntry<'projects'> }
+const { project, next } = Astro.props;
+const p = project.data;
+const { Content } = await render(project);
+const demoSrc = p.demo ? `/demos/${p.demo}/${p.demoPage}` : null;
+---
+<Base title={p.title} description={p.tagline} current="projects">
+  <section class="intro">
+    <div class="wrap">
+      <a class="back" href="/#projects">← All projects</a>
+      <span class="eyebrow">Project</span>
+      <h1>{p.title}{p.subtitle && <span class="jp" lang="ja">{p.subtitle}</span>}</h1>
+      <p class="lede">{p.tagline}</p>
+      <div class="links">
+        {demoSrc && <a class="btn btn-signal" href="#demo">Try the demo</a>}
+        <a class="btn" href={p.repo}>Source on GitHub</a>
+        {p.live && <span class="live muted">Runs daily at {new URL(p.live).host} on my own data</span>}
+      </div>
+    </div>
+  </section>
+
+  <section class="detail">
+    <div class="wrap cols">
+      <div class="prose">
+        <Content />
+        <h2 class="h3">What's interesting about it</h2>
+        <ul class="highlights">{p.highlights.map((h) => <li>{h}</li>)}</ul>
+      </div>
+      <aside class="card side">
+        <h2 class="h3">Stack</h2>
+        <ul class="chips">{p.stack.map((s) => <li>{s}</li>)}</ul>
+        {p.license && <p class="muted small">License: {p.license}</p>}
+      </aside>
+    </div>
+  </section>
+
+  {demoSrc && (
+    <section class="demo" id="demo">
+      <div class="wrap">
+        <div class="demo-head">
+          <div>
+            <span class="eyebrow">Interactive demo</span>
+            <h2>The real page, with invented data</h2>
+            <p class="sub prose">{p.demoNote} Nothing on this page contacts a market-data, news or brokerage service.</p>
+          </div>
+          <a class="btn" href={demoSrc} target="_blank" rel="noopener">Open full screen ↗</a>
+        </div>
+        <div class="frame">
+          <div class="bar" aria-hidden="true"><span></span><span></span><span></span><em>{p.live ? new URL(p.live).host : p.title} · demo</em></div>
+          <iframe src={demoSrc} title={`${p.title} demo`} loading="lazy"></iframe>
+        </div>
+      </div>
+    </section>
+  )}
+
+  <section class="next">
+    <div class="wrap">
+      <a href={`/projects/${next.id}/`}>Next: <strong>{next.data.title}</strong> →</a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .intro { padding: clamp(2.5rem, 7vw, 5rem) 0 2rem; background: radial-gradient(50rem 24rem at 90% -20%, var(--wash), transparent 70%); }
+  .back { display: inline-block; margin-bottom: 1.6rem; color: var(--sub); text-decoration: none; font-size: .9rem; }
+  .jp { font-size: .45em; font-weight: 400; color: var(--muted); margin-left: .6rem; vertical-align: middle; }
+  .links { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.5rem; }
+  .live { align-self: center; font-size: .88rem; }
+  .detail { padding: 2rem 0 3rem; }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 2.5rem; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .h3 { font-size: 1.15rem; font-weight: 650; font-stretch: 100%; margin-top: 2rem; }
+  .side .h3 { margin-top: 0; }
+  .small { font-size: .85rem; margin: 1rem 0 0; }
+  .highlights { padding-left: 1.1rem; }
+  .highlights li { margin-bottom: .6rem; color: var(--sub); }
+  .highlights li::marker { color: var(--signal); }
+
+  .demo { padding: 3rem 0; border-top: 1px solid var(--line); }
+  .demo-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 1rem; margin-bottom: 1.4rem; }
+  .demo-head p { margin: 0; }
+  .frame { border: 1px solid var(--line-strong); border-radius: var(--radius-m); overflow: hidden; background: var(--raised); box-shadow: var(--shadow); }
+  .bar { display: flex; align-items: center; gap: 6px; padding: .55rem .8rem; border-bottom: 1px solid var(--line); }
+  .bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); }
+  .bar em { margin-left: .6rem; font-style: normal; font-size: .78rem; color: var(--muted); }
+  iframe { display: block; width: 100%; height: min(82vh, 920px); border: 0; background: #fff; }
+  @media (max-width: 620px) { iframe { height: 78vh; } }
+
+  .next { padding: 2.5rem 0 1rem; border-top: 1px solid var(--line); }
+  .next a { text-decoration: none; font-size: 1.1rem; }
+  .next strong { color: var(--signal); }
+</style>

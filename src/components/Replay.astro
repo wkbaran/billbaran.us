@@ -1,0 +1,130 @@
+---
+/**
+ * Step-through of a recorded tool run (src/data/replays.json, made by
+ * scripts/demos/llm-replays.ts). Every step is rendered into the HTML, so it
+ * reads fine without JavaScript; the script turns it into tabs and a stepper.
+ */
+interface Step { actor: string; title: string; note: string; call?: string; output?: string }
+interface Run { id: string; label: string; schedule: string; steps: Step[] }
+interface Props { replays: Run[] }
+const { replays } = Astro.props;
+const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subagent: 'Subagent', cron: 'Scheduler' };
+---
+<div class="replay" data-replay>
+  <div class="tabs" role="tablist" aria-label="Choose a run">
+    {replays.map((r, i) => (
+      <button type="button" role="tab" id={`tab-${r.id}`} aria-controls={`run-${r.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>{r.label}</button>
+    ))}
+  </div>
+  {replays.map((r, i) => (
+    <div class="run" id={`run-${r.id}`} role="tabpanel" aria-labelledby={`tab-${r.id}`} hidden={i !== 0}>
+      <p class="schedule muted">{r.schedule}</p>
+      <div class="layout">
+        <ol class="steps">
+          {r.steps.map((s, j) => (
+            <li>
+              <button type="button" class={`step a-${s.actor}`} aria-current={j === 0 ? 'step' : undefined} data-step={j}>
+                <span class="n">{j + 1}</span>
+                <span class="who">{ACTOR[s.actor] ?? s.actor}</span>
+                <span class="what">{s.title}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        <div class="panes">
+          {r.steps.map((s, j) => (
+            <article class="pane" data-pane={j} hidden={j !== 0}>
+              <header>
+                <span class={`badge a-${s.actor}`}>{ACTOR[s.actor] ?? s.actor}</span>
+                <h3><code>{s.title}</code></h3>
+              </header>
+              <p class="sub">{s.note}</p>
+              {s.call && (<><h4>Arguments</h4><pre class="call"><code>{s.call}</code></pre></>)}
+              {s.output && (<><h4>{s.actor === 'subagent' && !s.call ? 'Reply' : 'Result'}</h4><pre class="out"><code>{s.output}</code></pre></>)}
+              <nav class="pager">
+                <button type="button" data-go="-1" disabled={j === 0}>← Back</button>
+                <span class="muted">Step {j + 1} of {r.steps.length}</span>
+                <button type="button" class="btn-signal" data-go="1" disabled={j === r.steps.length - 1}>Next →</button>
+              </nav>
+            </article>
+          ))}
+        </div>
+      </div>
+    </div>
+  ))}
+</div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>('[data-replay]')) {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const runs = [...root.querySelectorAll<HTMLElement>('.run')];
+    const select = (i: number) => {
+      tabs.forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
+      runs.forEach((r, k) => { r.hidden = k !== i; });
+    };
+    tabs.forEach((t, i) => {
+      t.addEventListener('click', () => select(i));
+      t.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        const k = (i + d + tabs.length) % tabs.length;
+        select(k);
+        tabs[k].focus();
+      });
+    });
+    for (const run of runs) {
+      const steps = [...run.querySelectorAll<HTMLButtonElement>('.step')];
+      const panes = [...run.querySelectorAll<HTMLElement>('.pane')];
+      let at = 0;
+      const show = (i: number, focus = false) => {
+        at = Math.max(0, Math.min(panes.length - 1, i));
+        panes.forEach((p, k) => { p.hidden = k !== at; });
+        steps.forEach((s, k) => (k === at ? s.setAttribute('aria-current', 'step') : s.removeAttribute('aria-current')));
+        if (focus) steps[at].focus();
+      };
+      steps.forEach((s, i) => s.addEventListener('click', () => show(i)));
+      run.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) =>
+        b.addEventListener('click', () => show(at + Number(b.dataset.go))),
+      );
+      run.addEventListener('keydown', (e) => {
+        if ((e.target as HTMLElement).closest('[role="tab"]')) return;
+        if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); show(at + 1, true); }
+        if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); show(at - 1, true); }
+      });
+    }
+  }
+</script>
+
+<style>
+  .replay { margin-top: 1.8rem; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+  .tabs [aria-selected="true"] { background: var(--signal); color: var(--on-signal); border-color: transparent; font-weight: 650; }
+  .schedule { font-size: .9rem; margin: 0 0 1rem; }
+  .layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; position: sticky; top: 4.5rem; }
+  @media (max-width: 860px) { .steps { position: static; grid-auto-flow: column; grid-auto-columns: minmax(10rem, 1fr); overflow-x: auto; padding-bottom: .4rem; } }
+  .step { width: 100%; text-align: left; display: grid; grid-template-columns: 1.6rem 1fr; gap: 0 .5rem; padding: .55rem .7rem; background: var(--surface); }
+  .step .n { grid-row: span 2; font-weight: 700; color: var(--muted); }
+  .step .who { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+  .step .what { font-size: .88rem; font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .step[aria-current] { border-color: var(--signal); background: var(--wash); }
+  .step[aria-current] .n { color: var(--signal); }
+  .a-model .who, .badge.a-model { color: var(--signal); }
+  .a-subagent .who, .badge.a-subagent { color: color-mix(in oklab, var(--signal) 55%, var(--ink)); }
+  .a-server .who, .badge.a-server, .a-cron .who, .badge.a-cron { color: #4fb68a; }
+  :global([data-theme="light"]) .a-server .who, :global([data-theme="light"]) .badge.a-server,
+  :global([data-theme="light"]) .a-cron .who, :global([data-theme="light"]) .badge.a-cron { color: #23704f; }
+  .pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.3rem; min-width: 0; }
+  .pane header { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin-bottom: .6rem; }
+  .pane h3 { margin: 0; }
+  .pane h3 code { background: none; padding: 0; font-size: 1.05rem; }
+  .badge { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; border: 1px solid currentColor; border-radius: 999px; padding: .1rem .5rem; }
+  h4 { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1.2rem 0 .4rem; }
+  pre { margin: 0; padding: .9rem 1rem; background: color-mix(in oklab, var(--ground) 60%, black); color: color-mix(in oklab, var(--ink) 92%, var(--ground));
+    border: 1px solid var(--line); border-radius: var(--radius-s); overflow: auto; max-height: 26rem; font-size: .8rem; line-height: 1.5; white-space: pre; }
+  :global([data-theme="light"]) pre { background: color-mix(in oklab, var(--ground) 80%, var(--ink) 4%); }
+  pre code { font-size: inherit; }
+  .pager { display: flex; justify-content: space-between; align-items: center; gap: .6rem; margin-top: 1.2rem; font-size: .85rem; }
+  .pager button:disabled { opacity: .4; cursor: default; }
+</style>

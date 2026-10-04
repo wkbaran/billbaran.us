@@ -1,0 +1,93 @@
+[
+  {
+    "id": "medium",
+    "label": "Medium daily digest",
+    "schedule": "Every morning · Sonnet main session, local Qwen subagents",
+    "steps": [
+      {
+        "actor": "cron",
+        "title": "Hermes cron starts the medium-digest skill",
+        "note": "The model has no file tools in this job. It can only call the server and delegate reading."
+      },
+      {
+        "actor": "model",
+        "title": "digest_begin",
+        "note": "One call. The server collects Following, top picks and For you, drops what was already reported, has Jev rank every headline, and writes a run file. The model gets a compact work list of refs.",
+        "call": "{}",
+        "output": "Medium digest run 20261004T111522Z · member: yes\nSince: Sat, Oct 3, 7:15 AM EDT (2026-10-03T11:15:07Z)\nFollowing: 5 new (1 already reported) · Top picks: 2 (5 dropped) · For you: 2 from positions 25–100 (1 dropped)\nClassifier jev (typesafe/jev-1.13): 9 ranked · 1 skipped (threshold 70%)\nYou read: @samlee ×1, @raequinn ×1 | Applied AI Notes ×2\nInterests:\n- Backend engineering: databases, distributed systems, performance work with real numbers\n- AI engineering: agents, evaluation, LLMs in production\n- Self-hosting and home labs\nColumns: ref | rank (0–100, the classifier's guess at how much you'd want it; rows are sorted by it) | title | author | publication | minutes | claps | flags (M member-only, R you read this author/publication) [| reason]\n## Following\nF1 | 95 | Postgres VACUUM, measured on a 2 TB table | Ana Ruiz | Better Databases | 14 | 412 | M\nF2 | 91 | Evaluating agents without fooling yourself | Sam Lee | Applied AI Notes | 11 | 1.3k | R\nF3 | 72 | My home lab runs on three mini PCs | Jo Park | - | 7 | 96 | -\nF4 | 21 | Ten morning habits of senior engineers | Max Doe | Career Lift | 4 | 2.3k | -\n## Top picks\nT1 | 83 | Raft in 200 lines of Go | Lena Ito | Systems Weekly | 18 | 3.4k | - | follow:Distributed Systems\nT2 | 66 | Why we left Kubernetes | Omar Haddad | - | 9 | 7.8k | M | selected\n## For you\nY1 | 61 | What the 2026 layoffs data actually shows | Rae Quinn | Applied AI Notes | 12 | 640 | R | network\nY2 | 55 | The case for boring technology, revisited | Ted Vos | - | 8 | 210 | - | history\n## Skipped by classifier\nF5 I made $12k in a month with AI side hustles\nNext: shortlist ≤10 F, ≤5 T, ≤10 Y refs (rows are best-ranked first; prefer them unless a lower one clearly fits the Interests better); read them with subagents (read_post accepts the ref); then call digest_finish."
+      },
+      {
+        "actor": "subagent",
+        "title": "read_post by ref",
+        "note": "Subagents on a local 27B model read posts by ref. The server resolves F1 from the run file, so nobody copies a URL and nothing can be renumbered.",
+        "call": "{ \"url\": \"F1\", \"format\": \"text\" }",
+        "output": "# Postgres VACUUM, measured on a 2 TB table\n\n- Author: Ana Ruiz (@anaruiz)\n- Publication: Better Databases\n- Published: 2026-10-03\n- URL: https://medium.com/@anaruiz/postgres-vacuum-measured-on-a-2-tb-table-d0c5e0000a1\n- ID: d0c5e0000a1\n- Access: full\n- Reading time: 14 min\n- Words: 2850\n- Claps: 412\n- Member-only story\n\nAutovacuum fell behind on our 2 TB orders table, and bloat reached 38% before anyone noticed.\n\nWhat we measured\n\n…"
+      },
+      {
+        "actor": "subagent",
+        "title": "Each subagent returns a verdict",
+        "note": "This is the model's only real job: judging a post.",
+        "output": "REF: F1\nACCESS: full\nTYPE: analysis\nGIST: Autovacuum fell behind on a 2 TB orders table until bloat reached 38%. Per-table cost limits, a raised worker count and a nightly freeze job brought it back under 5%, measured over three weeks.\nDEPTH: 5\nWHY: Before-and-after numbers for each setting change, which a summary can't carry."
+      },
+      {
+        "actor": "model",
+        "title": "digest_finish",
+        "note": "The model sends picks and gists by ref. The server validates every ref, fills in titles and links, saves state before it replies, and returns the exact message to send.",
+        "call": "{\n  \"starred\": [\n    { \"ref\": \"F1\", \"gist\": \"Autovacuum fell behind on a 2 TB table until bloat hit 38%; per-table cost limits and a nightly freeze job brought it back under 5%.\", \"why\": \"Before-and-after numbers for each setting, which the gist can't carry.\" },\n    { \"ref\": \"T1\", \"gist\": \"Builds a working Raft (elections, log replication, snapshots) in about 200 lines of Go, then breaks it with a partition test.\", \"why\": \"The failure cases are the lesson, and they only make sense with the code.\" }\n  ],\n  \"following\": [\n    { \"ref\": \"F2\", \"gist\": \"Argues most agent evals measure the prompt, not the agent, and shows a held-out task set that caught two regressions.\" },\n    { \"ref\": \"F3\", \"gist\": \"A three-node Proxmox cluster on used mini PCs: power draw, noise and what broke in the first year.\" }\n  ],\n  \"top_picks\": [\n    { \"ref\": \"T2\", \"gist\": \"A 12-person team moved back to plain VMs and cut its infrastructure bill by 60%.\" }\n  ],\n  \"for_you\": [\n    { \"ref\": \"Y1\", \"gist\": \"Tracks 2026 tech layoffs by role and finds senior IC roles cut least.\" }\n  ]\n}",
+        "output": "STATE SAVED: 8 ids added (0 already present), 9 total, last_run 2026-10-04T11:15:22Z\nCOUNTS: 5 new in Following · 6 read in full · 1 also new · 1 skipped · 0 unreadable\nWARNINGS: none\n===== DIGEST: reply with exactly the text below, nothing before or after =====\n📰 **Medium** — 5 new in Following, 6 read in full (since Sat, Oct 3, 7:15 AM EDT)\n\n⭐ **Read in full**\n1. **Postgres VACUUM, measured on a 2 TB table** — Ana Ruiz, Better Databases [member]\n   Autovacuum fell behind on a 2 TB table until bloat hit 38%; per-table cost limits and a nightly freeze job brought it back under 5%.\n   _Why:_ Before-and-after numbers for each setting, which the gist can't carry.\n   https://medium.com/@anaruiz/postgres-vacuum-measured-on-a-2-tb-table-d0c5e0000a1\n2. **Raft in 200 lines of Go** — Lena Ito, Systems Weekly\n   Builds a working Raft (elections, log replication, snapshots) in about 200 lines of Go, then breaks it with a partition test.\n   _Why:_ The failure cases are the lesson, and they only make sense with the code.\n   https://medium.com/@lenaito/raft-in-200-lines-of-go-d0c5e0050a1\n\n👥 **Following**\n• **Evaluating agents without fooling yourself** — Sam Lee · Argues most agent evals measure the prompt, not the agent, and shows a held-out task set that caught two regressions. https://medium.com/@samlee/evaluating-agents-without-fooling-yourself-d0c5e0010a1\n• **My home lab runs on three mini PCs** — Jo Park · A three-node Proxmox cluster on used mini PCs: power draw, noise and what broke in the first year. https://medium.com/@jopark/my-home-lab-runs-on-three-mini-pcs-d0c5e0020a1\n_Also new_\n**Career Lift** (1) · [Ten morning habits of senior engineers](<https://medium.com/@maxdoe/ten-morning-habits-of-senior-engineers-d0c5e0030a1>)\n\n🔥 **Medium's top picks**\n• **Why we left Kubernetes** — Omar Haddad [member] · A 12-person team moved back to plain VMs and cut its infrastructure bill by 60%. · _Selected for you_ https://medium.com/@ohaddad/why-we-left-kubernetes-d0c5e0060a1\n\n🎯 **For you**\n• **What the 2026 layoffs data actually shows** — Rae Quinn · Tracks 2026 tech layoffs by role and finds senior IC roles cut least. · _From your network_ https://medium.com/@raequinn/what-the-2026-layoffs-data-actually-shows-d0c5e0070a1\n\n🗑 Skipped 1 as clickbait"
+      },
+      {
+        "actor": "server",
+        "title": "Delivered to Discord",
+        "note": "The reply is the text after the ===== line, word for word.",
+        "output": "📰 **Medium** — 5 new in Following, 6 read in full (since Sat, Oct 3, 7:15 AM EDT)\n\n⭐ **Read in full**\n1. **Postgres VACUUM, measured on a 2 TB table** — Ana Ruiz, Better Databases [member]\n   Autovacuum fell behind on a 2 TB table until bloat hit 38%; per-table cost limits and a nightly freeze job brought it back under 5%.\n   _Why:_ Before-and-after numbers for each setting, which the gist can't carry.\n   https://medium.com/@anaruiz/postgres-vacuum-measured-on-a-2-tb-table-d0c5e0000a1\n2. **Raft in 200 lines of Go** — Lena Ito, Systems Weekly\n   Builds a working Raft (elections, log replication, snapshots) in about 200 lines of Go, then breaks it with a partition test.\n   _Why:_ The failure cases are the lesson, and they only make sense with the code.\n   https://medium.com/@lenaito/raft-in-200-lines-of-go-d0c5e0050a1\n\n👥 **Following**\n• **Evaluating agents without fooling yourself** — Sam Lee · Argues most agent evals measure the prompt, not the agent, and shows a held-out task set that caught two regressions. https://medium.com/@samlee/evaluating-agents-without-fooling-yourself-d0c5e0010a1\n• **My home lab runs on three mini PCs** — Jo Park · A three-node Proxmox cluster on used mini PCs: power draw, noise and what broke in the first year. https://medium.com/@jopark/my-home-lab-runs-on-three-mini-pcs-d0c5e0020a1\n_Also new_\n**Career Lift** (1) · [Ten morning habits of senior engineers](<https://medium.com/@maxdoe/ten-morning-habits-of-senior-engineers-d0c5e0030a1>)\n\n🔥 **Medium's top picks**\n• **Why we left Kubernetes** — Omar Haddad [member] · A 12-person team moved back to plain VMs and cut its infrastructure bill by 60%. · _Selected for you_ https://medium.com/@ohaddad/why-we-left-kubernetes-d0c5e0060a1\n\n🎯 **For you**\n• **What the 2026 layoffs data actually shows** — Rae Quinn · Tracks 2026 tech layoffs by role and finds senior IC roles cut least. · _From your network_ https://medium.com/@raequinn/what-the-2026-layoffs-data-actually-shows-d0c5e0070a1\n\n🗑 Skipped 1 as clickbait"
+      }
+    ]
+  },
+  {
+    "id": "spotify",
+    "label": "Spotify discovery lane",
+    "schedule": "Tue & Fri mornings · six genre lanes, all on a local Qwen model, $0",
+    "steps": [
+      {
+        "actor": "cron",
+        "title": "Hermes cron starts one lane",
+        "note": "Six lanes run one after another. Each one adds 3–6 tracks to that day's private playlist."
+      },
+      {
+        "actor": "model",
+        "title": "discovery_begin",
+        "note": "Finds or creates today's playlist, pulls new releases from the lane's known labels and artists, and hands out K refs.",
+        "call": "{ \"lane\": \"a-dnb\" }",
+        "output": "Lane a-dnb: Neurofunk and techstep\nToday's playlist: hermes20261006 (0 tracks so far)\nBaseline: Dark, technical drum & bass: neurofunk, techstep and halftime.\nResearch note: Releases are sparse; two great fits beat six average ones.\nPick up to 6 (aim for 3–6; fewer is fine if nothing else fits). At most 3 from K/C refs unless no web find verifies. At most 2 by core artists.\n\nNew from known labels and artists (since 2026-09-22):\nK1  Kestrel — Hollow Ground · single, 2026-10-01 · Ferrous Records [core artist]\nK2  Pressure Front (single, 2026-09-30, Obsidian Audio) · 2 tracks:\n    K2.1  Mara Voss — Pressure Front · Obsidian Audio\n    K2.2  Mara Voss — Undertow · Obsidian Audio\nK3  Night Shift (single, 2026-09-27, Ironclad Music) · 3 tracks:\n    K3.1  Dekker — Night Shift · Ironclad Music\n    K3.2  Dekker — Rivet · Ironclad Music\n    K3.3  Dekker — Coldline · Ironclad Music\n\nCovered labels (research should look elsewhere): Obsidian Audio, Ironclad Music\nCovered artists: Kestrel"
+      },
+      {
+        "actor": "subagent",
+        "title": "Web research → verify_tracks",
+        "note": "The research subagent searches the open web and passes its finds as plain lines. The server checks each one on Spotify with exact field searches, compares the ℗ label, and dedups by URI, ISRC and artist+title.",
+        "call": "{\n  \"lane\": \"a-dnb\",\n  \"text\": \"Vanta | Signal Loss | Signal Loss | Deepcut Records | 2026-10-02 | Sublevel Recordings: 'a slow-burning halftime roller' | https://example.com/sublevel/signal-loss\\nAsh Meridian | Fever Line | Fever Line EP | Ironclad Music | 2026-10-23 | Ironclad: 'out on the 23rd' | https://example.com/ironclad/fever-line\\nHollow Point | Static Bloom | Static Bloom | Ironclad Music | 2025-06-01 | Ironclad: 'their heaviest yet' | https://example.com/ironclad/static-bloom\\nLumen Drift | Glass Engine | Glass Engine | Sublevel Recordings | 2026-09-29 | Sublevel Recordings: 'clinical neurofunk built from field recordings' | https://example.com/sublevel/glass-engine\\nLABEL | Sublevel Recordings | https://example.com/sublevel | Halftime and neurofunk label\"\n}",
+        "output": "W1 ✓ Vanta — Signal Loss · 2026-10-02 · Sublevel Recordings [core artist]\n    ⚠ label is Sublevel Recordings, not Deepcut Records as the source said\nW2 pending Ash Meridian — Fever Line · not on Spotify (yet); re-checked each run\nW3 dup Hollow Point — Static Bloom · recommended 2026-09-18 (a-dnb)\nW4 ✓ Lumen Drift — Glass Engine · 2026-09-29 · Sublevel Recordings\nLabels noted for this lane: Sublevel Recordings\n\n2 of 4 verified. Pick by ref (W, K or C) in discovery_finish, best first."
+      },
+      {
+        "actor": "model",
+        "title": "discovery_review",
+        "note": "Everything that can be picked, read from the server's own run file.",
+        "call": "{ \"lane\": \"a-dnb\" }",
+        "output": "Lane a-dnb: Neurofunk and techstep\nBaseline: Dark, technical drum & bass: neurofunk, techstep and halftime.\nPick up to 6 (aim for 3–6; fewer is fine if nothing else fits). At most 3 from K/C refs unless no web find verifies. At most 2 by core artists.\n\nWeb finds, verified on Spotify (2):\nW1  Vanta — Signal Loss · single, 2026-10-02 · Sublevel Recordings [core artist]\n    why: Sublevel Recordings: 'a slow-burning halftime roller'\n    ⚠ label is Sublevel Recordings, not Deepcut Records as the source said\nW4  Lumen Drift — Glass Engine · single, 2026-09-29 · Sublevel Recordings\n    why: Sublevel Recordings: 'clinical neurofunk built from field recordings'\nNot pickable: W2 Ash Meridian — Fever Line (pending); W3 Hollow Point — Static Bloom (dup)\n\nFrom known labels and artists (6):\nK1  Kestrel — Hollow Ground · single, 2026-10-01 · Ferrous Records [core artist]\nK2.1  Mara Voss — Pressure Front · single, 2026-09-30 · Obsidian Audio\nK2.2  Mara Voss — Undertow · Pressure Front, single, 2026-09-30 · Obsidian Audio\nK3.1  Dekker — Night Shift · single, 2026-09-27 · Ironclad Music\nK3.2  Dekker — Rivet · Night Shift, single, 2026-09-27 · Ironclad Music\nK3.3  Dekker — Coldline · Night Shift, single, 2026-09-27 · Ironclad Music\n\nNext: call discovery_finish with your picks as refs, best first."
+      },
+      {
+        "actor": "model",
+        "title": "discovery_finish",
+        "note": "The model ranks by ref. The server enforces the lane limits by dropping picks from the end instead of refusing, adds the tracks, and saves history, the pool and what the lane learned.",
+        "call": "{\n  \"lane\": \"a-dnb\",\n  \"picks\": [\"W4\", \"W1\", \"K2.1\", \"K1\", \"K3.1\", \"K3.2\"],\n  \"why\": { \"K2.1\": \"Obsidian Audio: 'a rolling techstep workout'\" },\n  \"reject\": [\"K3.3\"]\n}",
+        "output": "Saved. Added 5 track(s) to hermes20261006.\nReply with one line: Done: a-dnb\n===== REPORT (for the record: the report job delivers it, so don't repeat it) =====\n**Lane:** Neurofunk and techstep\n**Playlist:** hermes20261006 — <https://open.spotify.com/playlist/pl1>\n\n**Added (5):**\n- **Lumen Drift — Glass Engine** (Sublevel Recordings, 2026-09-29). Sublevel Recordings: 'clinical neurofunk built from field recordings' <https://example.com/sublevel/glass-engine>\n- **Vanta — Signal Loss** (Sublevel Recordings, 2026-10-02). Sublevel Recordings: 'a slow-burning halftime roller' <https://example.com/sublevel/signal-loss> · *core artist*\n- **Mara Voss — Pressure Front** (Obsidian Audio, 2026-09-30). Obsidian Audio: 'a rolling techstep workout'\n- **Kestrel — Hollow Ground** (Ferrous Records, 2026-10-01) · *core artist*\n- **Dekker — Night Shift** (Ironclad Music, 2026-09-27)\n\nDropped by limits: Dekker — Rivet (feed limit of 3)\nAlready recommended: Hollow Point — Static Bloom\nNot on Spotify yet (re-checking each run): Ash Meridian — Fever Line <https://example.com/ironclad/fever-line>\nNew labels for this lane: Sublevel Recordings"
+      },
+      {
+        "actor": "cron",
+        "title": "A no-model job delivers the report",
+        "note": "A model once posted its own persona prompt to Discord instead of the report. Now plain code, run every five minutes, posts each finished report exactly once.",
+        "output": "**Lane:** Neurofunk and techstep\n**Playlist:** hermes20261006 — <https://open.spotify.com/playlist/pl1>\n\n**Added (5):**\n- **Lumen Drift — Glass Engine** (Sublevel Recordings, 2026-09-29). Sublevel Recordings: 'clinical neurofunk built from field recordings' <https://example.com/sublevel/glass-engine>\n- **Vanta — Signal Loss** (Sublevel Recordings, 2026-10-02). Sublevel Recordings: 'a slow-burning halftime roller' <https://example.com/sublevel/signal-loss> · *core artist*\n- **Mara Voss — Pressure Front** (Obsidian Audio, 2026-09-30). Obsidian Audio: 'a rolling techstep workout'\n- **Kestrel — Hollow Ground** (Ferrous Records, 2026-10-01) · *core artist*\n- **Dekker — Night Shift** (Ironclad Music, 2026-09-27)\n\nDropped by limits: Dekker — Rivet (feed limit of 3)\nAlready recommended: Hollow Point — Static Bloom\nNot on Spotify yet (re-checking each run): Ash Meridian — Fever Line <https://example.com/ironclad/fever-line>\nNew labels for this lane: Sublevel Recordings"
+      }
+    ]
+  }
+]

@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<head>
+<script>window.__DEMO__={"name":"equity-watch","project":"equity-watch","anchor":"2026-10-04T21:27:44.191Z","shift":["dashboard.json","alerts.json"],"ops":{"endpoint":"ops","document":"dashboard.json"},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"],"storage":{"equity-watch.opsToken":"demo"}};
+// Demo shim, inlined as the first script of every page under /demos/.
+//
+// The demos are each app's real page fed with invented data. This keeps them
+// static and offline:
+//   - fetch() to another origin never leaves the browser unless the host is
+//     in __DEMO__.allowHosts (it gets an empty 204 instead);
+//   - JSON documents named in __DEMO__.shift have every ISO timestamp moved
+//     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
+//   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
+//     come back as results in __DEMO__.ops.document a few seconds later;
+//   - service workers are not registered;
+//   - a small "invented data" marker is shown, plus a back link when the page
+//     is opened outside the portfolio's iframe.
+(() => {
+  "use strict";
+  const cfg = window.__DEMO__ || {};
+  const realFetch = window.fetch.bind(window);
+  const allow = new Set(cfg.allowHosts || []);
+  const shift = new Set(cfg.shift || []);
+  const anchor = cfg.anchor ? Date.parse(cfg.anchor) : NaN;
+  const delta = Number.isFinite(anchor) ? Date.now() - anchor : 0;
+  const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+  function moveTimes(value) {
+    if (typeof value === "string") return ISO.test(value) ? new Date(Date.parse(value) + delta).toISOString() : value;
+    if (Array.isArray(value)) return value.map(moveTimes);
+    if (value && typeof value === "object") {
+      const out = {};
+      for (const [k, v] of Object.entries(value)) out[k] = moveTimes(v);
+      return out;
+    }
+    return value;
+  }
+
+  const json = (status, body) =>
+    new Response(body === undefined ? null : JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  // ---- fake write endpoint ---------------------------------------------
+  const OPS_KEY = `demo.${cfg.name || "page"}.ops`;
+  const APPLY_AFTER_MS = 12_000;
+  function queued() {
+    try {
+      return JSON.parse(sessionStorage.getItem(OPS_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function remember(list) {
+    try {
+      sessionStorage.setItem(OPS_KEY, JSON.stringify(list));
+    } catch {
+      /* the demo just forgets on reload */
+    }
+  }
+  function withOps(doc) {
+    const now = Date.now();
+    const list = queued();
+    const done = list.filter((q) => now - q.at >= APPLY_AFTER_MS);
+    const waiting = list.filter((q) => now - q.at < APPLY_AFTER_MS);
+    doc.opResults = done.map(({ op }) => ({
+      id: op.id,
+      type: op.type,
+      symbol: op.params?.symbol ?? op.target?.symbol ?? null,
+      alertId: op.target?.alertId ?? null,
+      ok: true,
+      message: `Applied (demo): ${op.type}.`,
+      appliedAt: new Date(now).toISOString(),
+    }));
+    if (done.length) doc.opsProcessedThrough = new Date(now).toISOString();
+    // Dismissed revisits leave the queue, as they would after a real drain.
+    const dismissed = new Set(done.filter((q) => q.op.type === "revisit.dismiss").map((q) => q.op.target?.revisitId));
+    if (dismissed.size && Array.isArray(doc.revisitQueue)) {
+      doc.revisitQueue = doc.revisitQueue.filter((r) => !dismissed.has(r.id) && !dismissed.has(r.revisitId));
+    }
+    // Point the page's countdown at when the oldest waiting op will apply.
+    if (waiting.length) doc.opsNextCheckAt = new Date(waiting[0].at + APPLY_AFTER_MS).toISOString();
+    return doc;
+  }
+
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url, location.href);
+    const method = (init.method || (typeof input === "object" && input.method) || "GET").toUpperCase();
+
+    if (url.origin !== location.origin) {
+      if (allow.has(url.hostname)) return realFetch(input, init);
+      console.info("[demo] blocked request to", url.hostname);
+      return new Response(null, { status: 204 });
+    }
+    const file = url.pathname.split("/").pop();
+    if (cfg.ops && file === cfg.ops.endpoint) {
+      if (method !== "POST") return json(405, { error: "POST only" });
+      const op = JSON.parse(init.body || "{}");
+      remember([...queued(), { op, at: Date.now() }]);
+      return json(202, { id: op.id, queued: true });
+    }
+    if (shift.has(file) || (cfg.ops && file === cfg.ops.document)) {
+      const resp = await realFetch(url.pathname, { cache: "no-store" });
+      if (!resp.ok) return resp;
+      let doc = moveTimes(await resp.json());
+      if (cfg.ops && file === cfg.ops.document) doc = withOps(doc);
+      return json(200, doc);
+    }
+    return realFetch(input, init);
+  };
+
+  if ("serviceWorker" in navigator) {
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        value: () => Promise.resolve({ scope: location.pathname }),
+      });
+    } catch {
+      /* read-only in this browser; the worker is harmless anyway */
+    }
+  }
+
+  for (const [key, value] of Object.entries(cfg.storage || {})) {
+    try {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+    } catch {
+      /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- marker --------------------------------------------------------------
+  const framed = window.top !== window;
+  document.addEventListener("DOMContentLoaded", () => {
+    const tag = document.createElement("div");
+    tag.setAttribute("role", "note");
+    tag.style.cssText =
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
+      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+    tag.textContent = "Demo · invented data";
+    if (!framed) {
+      const back = document.createElement("a");
+      back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
+      back.textContent = " · back to billbaran.us";
+      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      tag.append(back);
+    }
+    document.body.append(tag);
+  });
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equity watch</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='46' width='80' height='8' fill='%23f3a83b'/><circle cx='62' cy='50' r='14' fill='%23f3a83b'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<script>
+  try { if ((localStorage.getItem("equity-watch.theme") ?? localStorage.getItem("tva-theme")) === "light") document.documentElement.setAttribute("data-theme", "light"); } catch (e) {}
+</script>
+<script src="palette.js"></script>
+<style>
+  /*
+   * DESK. A working surface for one person clearing a queue of decisions.
+   *
+   * Three colours in, everything else mixed from them (palette.js sets the
+   * --p-* inputs). Ground and ink swap for light mode; the signal is kept but
+   * pulled toward the new ground so it holds contrast on paper.
+   *
+   * The signal is spent on one thing only: what wants attention. Priority,
+   * a fresh trigger, a pending change, a warning. Symbols, links and chrome
+   * stay in ink, so the accent keeps its meaning.
+   */
+  :root {
+    --ground: var(--p-ground);
+    --ink: var(--p-ink);
+    --signal: var(--p-signal);
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --ground: var(--p-ink);
+    --ink: var(--p-ground);
+    --signal: color-mix(in oklab, var(--p-signal) 72%, var(--p-ground));
+    color-scheme: light;
+  }
+  :root {
+    --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
+    --raised: color-mix(in oklab, var(--ink) 9%, var(--ground));
+    --line: color-mix(in oklab, var(--ink) 15%, var(--ground));
+    --line-strong: color-mix(in oklab, var(--ink) 28%, var(--ground));
+    --muted: color-mix(in oklab, var(--ink) 50%, var(--ground));
+    --sub: color-mix(in oklab, var(--ink) 72%, var(--ground));
+    --wash: color-mix(in oklab, var(--signal) 13%, var(--ground));
+    --on-signal: var(--ground);
+    --down: color-mix(in oklab, var(--ink) 55%, var(--ground));
+    --radius-s: 4px;
+    --radius-m: 10px;
+    --rail: 15.5rem;
+    --shadow: 0 18px 48px color-mix(in oklab, black 45%, transparent);
+    --narrow: 'Archivo', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { font-size: 15px; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: var(--ground); color: var(--ink);
+    font-family: 'Archivo', system-ui, sans-serif; font-stretch: 100%;
+    line-height: 1.5; font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.drawer-open, body.chart-open { overflow: hidden; }
+  a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--signal); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  button {
+    font: inherit; font-size: 0.82rem; font-weight: 500; color: var(--ink);
+    background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s);
+    padding: 0.32rem 0.75rem; cursor: pointer;
+  }
+  button:hover { border-color: var(--line-strong); background: color-mix(in oklab, var(--ink) 13%, var(--ground)); }
+  button.danger { color: var(--signal); border-color: color-mix(in oklab, var(--signal) 50%, var(--ground)); }
+  input[type="search"], input[type="text"], input[type="password"], input[type="number"], input[type="date"], select {
+    font: inherit; font-size: 0.88rem; color: var(--ink); background: var(--ground);
+    border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0.38rem 0.6rem;
+  }
+  input::placeholder { color: var(--muted); }
+  code { font-size: 0.85em; background: var(--raised); padding: 0 0.3rem; border-radius: 3px; }
+  .muted { color: var(--muted); }
+  .note { color: var(--muted); font-size: 0.8rem; }
+  .note.warn, #updated.stale { color: var(--signal); }
+
+  /* ---- the rail ------------------------------------------------------ */
+  .shell { display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); min-height: 100vh; }
+  .rail {
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 1.5rem;
+    padding: 1.4rem 0 4rem; background: var(--surface); border-right: 1px solid var(--line);
+  }
+  .site-title {
+    margin: 0 1.4rem; font-size: 1rem; font-weight: 800; font-stretch: 125%; letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 0.55rem;
+  }
+  /* The mark: a level, and price sitting on it. */
+  .site-title::before {
+    content: ""; width: 1.4rem; height: 0.8rem; flex: none;
+    background:
+      radial-gradient(circle at 70% 50%, var(--signal) 0 0.28rem, transparent 0.3rem),
+      linear-gradient(var(--signal), var(--signal)) center / 100% 2px no-repeat;
+  }
+  .site-nav { display: flex; flex-direction: column; }
+  /*
+   * The rail is the overview's scoreboard as well as its navigation: each
+   * view's count is the biggest thing in it. Set ultra-condensed and light so
+   * five three-digit numbers fit a narrow column without shouting.
+   */
+  .site-nav a {
+    display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+    padding: 0.35rem 1.4rem 0.35rem 1.25rem; border-left: 3px solid transparent;
+    color: var(--sub); text-decoration: none; font-size: 0.92rem; font-weight: 500;
+  }
+  .site-nav a:hover { color: var(--ink); background: var(--raised); }
+  .site-nav a[aria-current="page"] { color: var(--ink); border-left-color: var(--signal); background: var(--raised); }
+  /* The display on `.site-nav a` beats the UA's [hidden] rule at equal
+     specificity, which showed a Holdings link with no holdings behind it. */
+  .site-nav a[hidden] { display: none; }
+  .nav-count {
+    font-family: var(--narrow); font-stretch: 62%; font-weight: 250; font-size: 2.3rem; line-height: 1;
+    color: var(--muted); letter-spacing: -0.01em;
+  }
+  .site-nav a[aria-current="page"] .nav-count { color: var(--ink); }
+  /* The queue is the one count that is a to-do list, so it carries the signal. */
+  #nav-queue-count { color: var(--signal); font-weight: 400; }
+  .meta { color: var(--muted); font-size: 0.8rem; }
+  #updated { margin: 0 1.4rem; display: block; }
+  /* Everything this browser has queued and not yet seen applied (renderRailPending). */
+  .rail-pending { margin: -1rem 1.4rem 0; font-size: 0.8rem; }
+  .rail-pending summary { padding: 0.2rem 0; color: var(--signal); }
+  .rail-pending ul { margin: 0.3rem 0 0; padding: 0; list-style: none; color: var(--sub); }
+  .rail-pending li { padding: 0.3rem 0; line-height: 1.35; }
+  .rail-pending li + li { border-top: 1px solid var(--line); }
+  .rail-pending a { color: var(--ink); text-decoration: none; }
+  .rail-pending a:hover { text-decoration: underline; text-decoration-color: var(--signal); }
+  .spacer { flex: 1; }
+  .header-right { display: flex; flex-direction: column; align-items: stretch; gap: 0.45rem; margin: 0 1.4rem; }
+  .header-right .meta:empty { display: none; }
+  .header-right button { text-align: left; }
+
+  /*
+   * The queue strip, borrowed from Tape: the open revisit queue in the queue
+   * page's order, one symbol per cell, each a way into its decision. It
+   * sticks to the top of the content column, so a decision is one tap away
+   * from any view however far down it is scrolled. Never moves by itself.
+   */
+  .content { min-width: 0; --tape-h: 2.45rem; }
+  .tape-wrap {
+    position: sticky; top: 0; z-index: 5; display: flex; height: var(--tape-h);
+    background: var(--signal); color: var(--on-signal); box-shadow: 0 1px 0 color-mix(in oklab, var(--ground) 60%, transparent);
+  }
+  .tape-wrap[hidden] { display: none; }
+  .tape-label {
+    flex: none; display: flex; align-items: center; padding: 0 1rem 0 1.25rem;
+    background: var(--ink); color: var(--ground); font-size: 0.82rem; font-weight: 600; white-space: nowrap;
+  }
+  .tape {
+    display: flex; flex: 1; min-width: 0; margin: 0; padding: 0 2.5rem 0 0; list-style: none;
+    overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 2.5rem), transparent);
+  }
+  .tape::-webkit-scrollbar { display: none; }
+  .tape li { flex: none; display: flex; }
+  .tape a {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0 0.95rem; color: inherit; text-decoration: none; font-size: 0.85rem;
+    border-right: 1px solid color-mix(in oklab, var(--on-signal) 22%, var(--signal));
+  }
+  .tape a:hover, .tape a:focus-visible { background: color-mix(in oklab, var(--on-signal) 12%, var(--signal)); outline: none; }
+  .tape .t-sym { font-weight: 750; font-stretch: 112%; letter-spacing: 0.01em; }
+  .tape .t-lvl { font-stretch: 75%; font-size: 0.9rem; }
+  .tape .t-mark { font-stretch: 75%; font-size: 0.75rem; opacity: 0.75; }
+  .tape .t-held { width: 0.38rem; height: 0.38rem; border-radius: 50%; background: var(--on-signal); }
+  .tape-more { display: flex; align-items: center; padding: 0 0.95rem; font-size: 0.78rem; font-stretch: 85%; opacity: 0.8; white-space: nowrap; }
+
+  /* ---- page ------------------------------------------------------------ */
+  main { width: 100%; max-width: 68rem; padding: 2rem 2.5rem 5rem; }
+  .section-header { display: flex; align-items: baseline; gap: 0.75rem; margin: 2.75rem 0 0.9rem; }
+  section > .section-header:first-child, #view-overview > .tiles + .section-header { margin-top: 0; }
+  .section-title { margin: 0; font-size: 1.7rem; font-weight: 600; font-stretch: 75%; letter-spacing: -0.005em; line-height: 1.1; }
+  .section-count { font-size: 1.7rem; font-stretch: 62%; font-weight: 250; color: var(--muted); line-height: 1.1; }
+  /* The alerts view writes a sentence here ("542 of 542 · prices 13 min ago"), not a count. */
+  #alerts-status { font-size: 0.85rem; font-stretch: 100%; font-weight: 400; }
+
+  #error { margin-bottom: 1rem; color: var(--signal); }
+  #auth-banner {
+    margin-bottom: 1.5rem; padding: 0.85rem 1.1rem; border-radius: var(--radius-m);
+    background: var(--wash); border: 1px solid color-mix(in oklab, var(--signal) 45%, var(--ground)); font-size: 0.9rem;
+  }
+  #auth-banner strong { color: var(--signal); }
+  #auth-banner .auth-detail { display: block; margin-top: 0.2rem; color: var(--sub); }
+
+  /* Overview figures: one band, not four boxes. */
+  /*
+   * Every figure carries a rule on its left and top, pulled 1px outside its
+   * cell; the band clips what lands on its own edge. So whichever figure
+   * starts a row, however the band wraps, it has no rule before it and
+   * lines up with the one above.
+   */
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); overflow: hidden;
+    margin-bottom: 2.5rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .tile { padding: 1rem 1.25rem 1.05rem; margin: -1px 0 0 -1px; border-left: 1px solid var(--line); border-top: 1px solid var(--line); }
+  .tile .value { font-size: 3.4rem; line-height: 1; font-weight: 200; font-stretch: 62%; letter-spacing: -0.02em; }
+  .tile:first-child .value { color: var(--signal); font-weight: 350; }
+  .tile .label { margin-top: 0.35rem; color: var(--sub); font-size: 0.8rem; line-height: 1.35; max-width: 16rem; }
+
+  .card { background: var(--surface); border-radius: var(--radius-m); overflow: hidden; }
+  .empty { padding: 1rem 1.25rem; color: var(--muted); }
+
+  a.sym { font-weight: 750; font-stretch: 112%; color: var(--ink); text-decoration: none; letter-spacing: 0.01em; }
+  a.sym:hover { color: var(--signal); }
+  a.plain { color: inherit; text-decoration: none; }
+  a.plain:hover { text-decoration: underline; text-decoration-color: var(--signal); }
+
+  .tag {
+    display: inline-block; margin-left: 6px; padding: 0 7px; vertical-align: 1px;
+    font-size: 0.72rem; font-weight: 500; line-height: 1.55; border-radius: 999px;
+    color: var(--sub); background: var(--raised); text-decoration: none;
+  }
+  a.tag:hover { background: var(--line); }
+  .tag.held { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); background: transparent; }
+  .tag.alert { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); background: transparent; }
+  .tag.reversed, .tag.stagnant { color: var(--sub); background: transparent; box-shadow: inset 0 0 0 1px var(--line); font-style: italic; }
+  .tag.above-basis { color: var(--on-signal); background: var(--signal); }
+  .tag.no-stop, .tag.stop-tight, .tag.stop-loose, .tag.past-trail { color: var(--signal); background: transparent; box-shadow: inset 0 0 0 1px var(--signal); }
+  .tag.pending { color: var(--signal); background: var(--wash); }
+  /* Primed: price is there, volume isn't yet. Half-lit, so it reads as armed rather than fired. */
+  .tag.waiting { color: var(--ink); background: transparent; border: 1px dashed var(--signal); padding: 0 6px; line-height: calc(1.55em - 2px); }
+  .waiting-note .tag { margin-left: 0; }
+  .reversal-note { color: var(--sub); font-style: italic; }
+  .update-note { color: var(--signal); }
+  .position-note { color: var(--sub); }
+
+  /*
+   * Recent triggers: a timeline. The time column carries a spine, each fire a
+   * node on it; a fire you haven't seen yet is a filled signal node, and that
+   * is the only accent in the list.
+   */
+  .trigger-row {
+    position: relative; display: grid; grid-template-columns: 7.5rem 1fr auto; gap: 1.25rem;
+    padding: 0.6rem 1.25rem 0.6rem 0; align-items: baseline; cursor: pointer; color: var(--ink);
+  }
+  .trigger-row .when { position: relative; text-align: right; padding-right: 1.4rem; align-self: stretch; }
+  .trigger-row .when::before { content: ""; position: absolute; right: 0.3rem; top: -0.6rem; bottom: -0.6rem; width: 1px; background: var(--line); }
+  .trigger-row .when::after {
+    content: ""; position: absolute; right: calc(0.3rem - 3px); top: 0.52em; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  }
+  .trigger-row.new .when::after { background: var(--signal); box-shadow: 0 0 0 3px var(--wash); }
+  .trigger-row.new .when { color: var(--ink); }
+  .trigger-row:first-child .when::before { top: 0.9rem; }
+  /* of-type, not child: the "Show more" button after the rows is not a div. */
+  .trigger-row:last-of-type .when::before { bottom: auto; height: 1.2rem; }
+  .show-more {
+    display: block; width: 100%; padding: 0.7rem 1.25rem; text-align: left;
+    background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; color: var(--sub);
+  }
+  .show-more:hover { background: var(--raised); color: var(--ink); }
+  .trigger-row:hover, tr.clickable:hover { background: var(--raised); }
+  .trigger-row:focus-visible, tr.clickable:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+  .when { color: var(--muted); font-size: 0.8rem; }
+  .status { font-size: 0.78rem; color: var(--muted); }
+
+  /* The queue: one decision per row; the priority is set as the row's number. */
+  .queue-row { display: grid; grid-template-columns: 4.5rem 1fr; gap: 1rem; padding: 1.1rem 1.5rem 1.2rem 0.5rem; }
+  .queue-row + .queue-row { border-top: 1px solid var(--line); }
+  .priority {
+    text-align: right; color: var(--signal); font-size: 2.6rem; line-height: 0.95;
+    font-weight: 300; font-stretch: 62%; letter-spacing: -0.02em;
+  }
+  .priority.none { color: var(--line-strong); }
+  .headline { font-size: 1.02rem; font-weight: 500; line-height: 1.4; }
+  .queue-row .headline a.sym { font-size: 1.12rem; }
+  .sub { color: var(--sub); font-size: 0.86rem; }
+  .why { color: var(--muted); font-size: 0.78rem; margin-top: 0.2rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; margin-top: 0.7rem; align-items: center; font-size: 0.86rem; }
+  .actions a { color: var(--sub); }
+  ol.timeline { margin: 0; padding-left: 1.2rem; }
+  ol.timeline li { margin-bottom: 2px; }
+  ol.timeline li.reversal { color: var(--sub); font-style: italic; }
+
+  .story { padding: 1rem 1.5rem; }
+  .story + .story { border-top: 1px solid var(--line); }
+  .story ol { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--sub); font-size: 0.88rem; }
+
+  details summary { cursor: pointer; color: var(--sub); padding: 0.85rem 1.25rem; }
+  details ul { margin: 0; padding: 0 1.25rem 1rem 2.5rem; color: var(--sub); }
+  .approach-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 3px 1.25rem; font-size: 0.88rem; }
+  .approach-dist { min-width: 4.5rem; text-align: right; color: var(--sub); }
+
+  /* ---- tables ------------------------------------------------------ */
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 0.5rem 0.9rem; text-align: right; white-space: nowrap; border-top: 1px solid var(--line); }
+  th {
+    position: sticky; top: 0; border-top: 0; cursor: pointer; user-select: none;
+    font-size: 0.78rem; font-weight: 500; font-stretch: 88%; color: var(--muted); background: var(--surface);
+    border-bottom: 1px solid var(--line-strong);
+  }
+  /*
+   * Holdings' and Alerts' header rows, pinned under the queue strip. The sticky
+   * rule above can't do it: each table's .table-wrap scrolls sideways, which
+   * makes it the scroller a sticky cell sticks to, and it never scrolls down.
+   * So .table-head, a copy of the header row outside that wrapper, is what
+   * sticks, and the wrapper is pulled up under it (syncTableHead in app.js).
+   * Sticky rather than scripted on scroll, so the browser moves it with the
+   * page and it can't lag a frame behind.
+   *
+   * The card clips rather than hides: overflow: hidden makes a scroller too.
+   */
+  .card.pinned-table { overflow: clip; }
+  .table-head { position: sticky; top: var(--tape-h); z-index: 3; overflow: hidden; background: var(--surface); }
+  .table-head table { table-layout: fixed; }
+  .table-head th { box-sizing: border-box; }
+  .content:has(> .tape-wrap[hidden]) { --tape-h: 0px; }
+  #holdings > tbody > tr, #alerts-table > tbody > tr { scroll-margin-top: calc(var(--tape-h) + 2.5rem); }
+  th[aria-sort] { color: var(--ink); }
+  th:first-child, td:first-child { text-align: left; }
+  tr.ignored td { color: var(--muted); }
+  tr.clickable { cursor: pointer; }
+  tr.focused > td { background: var(--raised); }
+  tr.focused > td:first-child, tr.jumped > td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+  :is(#alerts-table, #alerts-head) th { cursor: default; }
+  :is(#alerts-table, #alerts-head) th:is(:nth-child(2), :nth-child(3)), #alerts-table td.dir { text-align: left; }
+  #alerts-table td.cond { text-align: left; white-space: normal; min-width: 14rem; color: var(--sub); }
+  /*
+   * A position's pills (alert, stop, flags) wrap under the symbol rather than
+   * widening the column: with Beta and ATR beside them, one row carrying
+   * "stop tight" and "+10% over basis" pushed Value out of the card.
+   */
+  #holdings > tbody > tr:not(.detail-row) > td:first-child { white-space: normal; min-width: 16rem; }
+  #holdings .tag { white-space: nowrap; }
+  /* Distance to the level: up in signal, down in ink, split on a centre tick. */
+  .bar-cell { width: 140px; }
+  .bar { position: relative; height: 6px; background: var(--raised); border-radius: 3px; }
+  .bar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+  .bar span { position: absolute; top: 0; bottom: 0; }
+  .bar span.up { left: 50%; background: var(--signal); border-radius: 0 3px 3px 0; }
+  .bar span.down { right: 50%; background: var(--down); border-radius: 3px 0 0 3px; }
+
+  .indexed { display: flex; align-items: flex-start; gap: 0.5rem; }
+  .indexed > .pinned-table { flex: 1 1 auto; min-width: 0; }
+  .alpha-rail { position: sticky; top: calc(var(--tape-h) + 0.75rem); flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; }
+  .alpha-rail button {
+    font-size: 0.72rem; font-stretch: 75%; line-height: 1.15; padding: 2px 4px; min-width: 2.4rem;
+    background: none; border: 0; border-radius: 3px; color: var(--sub);
+  }
+  .alpha-rail button:hover { background: var(--raised); color: var(--ink); }
+  .alpha-rail button[disabled] { color: var(--line-strong); cursor: default; background: none; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+  .toolbar input[type="search"] { flex: 1 1 14rem; min-width: 0; }
+
+  /* ---- drawer and chart --------------------------------------------- */
+  .backdrop { position: fixed; inset: 0; background: color-mix(in oklab, var(--ground) 55%, transparent); backdrop-filter: blur(2px); z-index: 15; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(36rem, 100vw); z-index: 20; overflow-y: auto; outline: none;
+    background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow); padding: 1.5rem 1.75rem 2.5rem;
+    animation: drawer-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes drawer-in { from { transform: translateX(2.5rem); opacity: 0; } }
+  .drawer-close { float: right; }
+  .drawer-title { margin: 0.2rem 0 1rem; padding-right: 4.5rem; font-size: 1.35rem; font-weight: 600; font-stretch: 85%; line-height: 1.25; }
+  .drawer-title a.sym { font-size: 1.45rem; }
+  .drawer-sub { margin: 1.75rem 0 0.55rem; font-size: 1.05rem; font-weight: 600; font-stretch: 80%; color: var(--ink); }
+  dl.kv-list { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1.25rem; margin: 0; }
+  dl.kv-list dt { color: var(--muted); font-size: 0.84rem; }
+  dl.kv-list dd { margin: 0; overflow-wrap: anywhere; }
+  .drawer .trigger-row { grid-template-columns: 7rem 1fr auto; }
+  .chart-backdrop { z-index: 21; }
+  .chart-panel {
+    position: fixed; inset: 4vh 4vw; z-index: 22; flex-direction: column; outline: none;
+    background: var(--surface); border-radius: var(--radius-m); box-shadow: var(--shadow); padding: 1rem 1.25rem;
+  }
+  .chart-panel:not([hidden]) { display: flex; }
+  .chart-panel iframe { flex: 1; width: 100%; border: 0; border-radius: 6px; }
+
+  /* Same trap as .chart-panel: a display rule on a class beats [hidden], so name :not([hidden]). */
+  .agent-holdings:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; cursor: pointer; }
+  /*
+   * In-page modals: the ops-token prompt and the WebMCP agent's confirm. Never
+   * window.prompt/confirm - some WebMCP hosts (ChatGPT desktop) don't implement
+   * them, and the page would silently fail to unlock. The UA's dialog[open]
+   * rule shows and hides these; set no `display` on them (see the [hidden] trap).
+   */
+  :is(dialog.modal, dialog.agent-confirm) {
+    background: var(--raised); color: var(--ink); border: 1px solid var(--line-strong); border-radius: var(--radius-m);
+    box-shadow: var(--shadow); padding: 1rem 1.2rem; max-width: min(460px, calc(100vw - 32px));
+  }
+  :is(dialog.modal, dialog.agent-confirm)::backdrop { background: color-mix(in srgb, var(--ground) 70%, transparent); }
+  dialog.agent-confirm .agent-what { margin: 0.6rem 0; overflow-wrap: anywhere; }
+  :is(dialog.agent-confirm .agent-buttons, dialog.modal .modal-buttons) { display: flex; justify-content: flex-end; gap: 8px; margin-top: 0.9rem; }
+  dialog.modal form { display: flex; flex-direction: column; gap: 6px; }
+  dialog.modal .note { margin: 0.2rem 0 0.4rem; }
+  dialog.modal input[type="password"] { width: min(360px, 100%); font-family: ui-monospace, monospace; }
+  /* Lower left, out of the way of the drawer's forms on the right. */
+  #toasts { position: fixed; left: 16px; bottom: 16px; z-index: 25; display: flex; flex-direction: column; gap: 6px; max-width: min(360px, calc(100vw - 32px)); }
+  .toast {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 0.5rem 0.75rem; font-size: 0.85rem; line-height: 1.35;
+    background: var(--raised); color: var(--ink); border-radius: var(--radius-m); box-shadow: var(--shadow);
+    border-left: 3px solid var(--line-strong); animation: slide 0.2s ease-out;
+  }
+  .toast .t-body { cursor: pointer; }
+  .toast .t-sym { font-weight: 700; }
+  .toast button { background: transparent; border: 0; padding: 0 2px; font-size: 0.9rem; line-height: 1; }
+  .toast.ok { border-left-color: var(--ink); }
+  .toast.bad { border-left-color: var(--signal); }
+  @keyframes slide { from { transform: translateY(8px); opacity: 0; } }
+
+  /* ---- forms ------------------------------------------------------- */
+  .ops-form:not([hidden]) { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 0.8rem; }
+  .ops-form { padding: 1rem 1.25rem; margin-bottom: 1rem; overflow: visible; }
+  .ops-form .form-title { flex-basis: 100%; font-size: 1rem; font-weight: 600; font-stretch: 85%; }
+  .ops-form .note { flex-basis: 100%; }
+  .field:not([hidden]) { display: flex; flex-direction: column; }
+  .field { gap: 3px; font-size: 0.76rem; color: var(--sub); }
+  .field input[type="number"] { width: 8rem; }
+  .field input[type="text"] { width: 7rem; text-transform: uppercase; }
+  .form-error { color: var(--signal); font-size: 0.82rem; align-self: center; }
+  /* One control height, so a row's labels sit on one line whatever the control. */
+  .ops-form :is(input[type="number"], input[type="text"], input[type="date"], select) { height: 2.2rem; }
+  .ops-form :is(input, select):disabled { opacity: 0.45; border-style: dashed; }
+  .field:focus-within > label { color: var(--ink); }
+
+  /*
+   * An alert's Edit form reads as a sentence: "Watch <what> / and volume
+   * <condition>", one clause per row with its words hung at the left, then a
+   * foot where the button sits beside what it would send. The button arms
+   * (fills with ink) only once there is a change, and the change line carries
+   * the site's mark: a dot on a level.
+   */
+  .ops-form.edit-form:not([hidden]) { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  .edit-form { margin-top: 1.25rem; }
+  .edit-form > .form-title { margin-bottom: 0.2rem; }
+  .edit-form .clause:not([hidden]) { display: flex; align-items: flex-start; gap: 0.75rem; }
+  .edit-form .clause { padding: 0.7rem 0; }
+  .clause-fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 0.75rem; }
+  .edit-form .clause + .clause { border-top: 1px dashed var(--line); }
+  .clause-label {
+    /* Level with the first row's controls, under their labels. */
+    flex: 0 0 4.6rem; padding-top: calc(0.76rem * 1.5 + 3px); line-height: 2.2rem;
+    font-size: 0.95rem; font-weight: 400; font-stretch: 80%; color: var(--muted);
+  }
+  .edit-form .field input[type="number"] { width: 6.5rem; }
+  .edit-form .note.clause-note { margin: 0 0 0.6rem 5.35rem; }
+  .form-foot {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem;
+    margin-top: 0.3rem; padding-top: 0.85rem; border-top: 1px solid var(--line);
+  }
+  .edit-preview { flex: 1 1 14rem; font-size: 0.84rem; color: var(--muted); min-width: 0; }
+  .edit-preview.changed { color: var(--ink); }
+  .edit-preview.changed::before {
+    content: ""; display: inline-block; width: 1.1rem; height: 0.55rem; margin-right: 0.5rem; vertical-align: 0.05em;
+    background:
+      radial-gradient(circle at 70% 50%, var(--signal) 0 0.2rem, transparent 0.22rem),
+      linear-gradient(var(--signal), var(--signal)) center / 100% 1.5px no-repeat;
+  }
+  .edit-form:has(.edit-preview.changed) button[type="submit"]:not(:disabled) {
+    background: var(--ink); color: var(--ground); border-color: var(--ink); font-weight: 600;
+  }
+  .edit-form .form-foot + .note { margin-top: 0.55rem; }
+  #ops-pending, #holdings-pending { margin-bottom: 1rem; }
+  .pending-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0.55rem 1.25rem; font-size: 0.86rem; }
+  .pending-row + .pending-row { border-top: 1px solid var(--line); }
+  .pending-row .tag { margin-left: 0; }
+  /* A button that reads as a link, for an action inside a sentence (the panel's "Forget"). */
+  button.inline-link {
+    padding: 0; border: 0; background: none; font-size: inherit; font-weight: inherit; color: var(--ink);
+    text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px;
+  }
+  button.inline-link:hover { background: none; text-decoration-color: var(--signal); }
+
+  #holdings-status { margin: -0.4rem 0 1rem; }
+  tr.detail-row > td { background: var(--ground); padding: 0; text-align: left; white-space: normal; }
+  /*
+   * An expanded position: three bands, Lots, Stop and Alert, each one row of
+   * controls under a label in a shared left column, so the two forms read
+   * as the same kind of thing instead of two columns of different heights.
+   * Add to position sits beside the lots it adds to; removing the position
+   * is last and on its own.
+   *
+   * Done in CSS over app.js's existing markup: .detail-cols and .actions are
+   * `display: contents`, so their children land in this grid directly. The
+   * labels are pseudo-elements: the grid's own ::before for Lots, and each
+   * band's ::before, hung into the label column, for the other two.
+   */
+  .position-detail {
+    --label-w: 4.5rem; --col-gap: 1.25rem;
+    display: grid; grid-template-columns: var(--label-w) minmax(0, 1fr) auto; column-gap: var(--col-gap);
+    padding: 1rem 1.25rem 1.1rem;
+  }
+  .position-detail::before, .position-detail > .detail-cols > *::before {
+    font-size: 0.95rem; font-weight: 600; font-stretch: 80%; color: var(--sub);
+  }
+  .position-detail::before { content: "Lots"; grid-column: 1; grid-row: 1; padding-top: 0.3rem; }
+  .position-detail > .table-wrap { grid-column: 2; grid-row: 1; }
+  .position-detail > .detail-cols, .position-detail > .actions { display: contents; }
+  .position-detail > .actions > :first-child { grid-column: 3; grid-row: 1; align-self: start; }
+  .position-detail > .actions > :last-child { grid-column: 2 / -1; grid-row: 4; justify-self: end; margin-top: 0.9rem; }
+  .position-detail > .detail-cols > * {
+    position: relative; grid-column: 2 / -1; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line);
+  }
+  .position-detail > .detail-cols > .stops { grid-row: 2; }
+  .position-detail > .detail-cols > .alert-col { grid-row: 3; }
+  .position-detail > .detail-cols > *::before {
+    position: absolute; top: calc(0.9rem + 0.3rem); left: calc(-1 * (var(--label-w) + var(--col-gap)));
+  }
+  .position-detail > .detail-cols > .stops::before { content: "Stop"; }
+  .position-detail > .detail-cols > .alert-col::before { content: "Alert"; }
+  /* The border runs under the labels too, so each band reads as one row. */
+  .position-detail > .detail-cols > *::after {
+    content: ""; position: absolute; top: -1px; height: 1px; left: calc(-1 * (var(--label-w) + var(--col-gap))); width: calc(var(--label-w) + var(--col-gap));
+    background: var(--line);
+  }
+  table.lots th { cursor: default; background: transparent; position: static; }
+  table.lots th, table.lots td { padding: 5px 10px; }
+  tr.lot-edit > td { text-align: left; white-space: normal; }
+  .position-detail .ops-form { margin: 0; padding: 0; }
+  /* Stop band: the stops you have, then the form to add one, on one line. */
+  .stops { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 1.25rem; }
+  .stops > .stop-list { align-self: center; }
+  /* With the band labelled, "Stops:" only repeats it; "No stops." still says something. */
+  .stop-list > .muted:not(:only-child) { display: none; }
+  .stops > .stop-edit:not([hidden]) { flex-basis: 100%; }
+  /* Alert band: the edit form's fields in one row; its own titles repeat the label. */
+  .alert-col { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: flex-end; }
+  .alert-col > .form-title, .alert-col .ops-form > .form-title { display: none; }
+  .alert-col .ops-form.card { background: transparent; border-radius: 0; }
+  .alert-col .note { flex-basis: 100%; margin: 0; }
+  .position-detail .ops-form > .note { order: 99; }
+  .alert-col > .edit-form { flex-basis: 100%; }
+  .alert-col .edit-form .clause:first-of-type { padding-top: 0; }
+  .row-actions { display: inline-flex; gap: 6px; }
+  .stop-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .stop-tag { display: inline-flex; align-items: center; gap: 6px; margin-left: 0; padding: 2px 8px; }
+  .stop-tag button { font-size: 0.72rem; padding: 0 6px; }
+
+  /* ---- palette control (web/palette.js) ------------------------------- */
+  .pal { position: fixed; left: 1.4rem; bottom: 1.2rem; z-index: 30; }
+  .pal-toggle { display: flex; gap: 0; padding: 3px; border-radius: 999px; background: var(--raised); }
+  .pal-toggle span, .pal-preset span { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+  .pal-toggle span + span { margin-left: -4px; }
+  .pal-panel {
+    position: absolute; left: 0; bottom: calc(100% + 8px); width: 15rem; padding: 0.9rem; display: grid; gap: 0.55rem;
+    background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-m); box-shadow: var(--shadow); font-size: 0.82rem;
+  }
+  .pal-panel[hidden] { display: none; }
+  .pal-heading { font-weight: 650; font-stretch: 85%; font-size: 0.95rem; }
+  .pal-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pal-preset { display: flex; justify-content: center; padding: 6px 4px; }
+  .pal-preset span + span { margin-left: -4px; }
+  .pal-field { display: flex; align-items: center; gap: 0.6rem; }
+  .pal-field input { width: 2.2rem; height: 1.6rem; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+  .pal-code { font-size: 0.75rem; color: var(--sub); user-select: all; }
+  .pal-reset { font-size: 0.75rem; }
+
+  /* ---- narrow screens: the rail folds into a top bar ------------------ */
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail {
+      position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center;
+      gap: 0.6rem 1rem; padding: 0.9rem 1rem; border-right: 0; border-bottom: 1px solid var(--line);
+    }
+    .site-title { margin: 0; }
+    .site-nav { flex-direction: row; overflow-x: auto; flex-basis: 100%; order: 3; gap: 0.25rem; }
+    .site-nav a { display: flex; gap: 0.35rem; padding: 0.3rem 0.6rem; border-left: 0; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .site-nav a[aria-current="page"] { border-bottom-color: var(--signal); }
+    .nav-count { font-size: 1.05rem; font-stretch: 75%; font-weight: 400; }
+    #updated { margin: 0; }
+    .rail-pending { margin: 0; flex-basis: 100%; }
+    .spacer { display: none; }
+    .header-right { flex-direction: row; flex-wrap: wrap; margin: 0 0 0 auto; }
+    main { padding: 1.5rem 1rem 5rem; }
+    .pal { left: 1rem; }
+  }
+  @media (max-width: 560px) {
+    .edit-form .clause:not([hidden]) { flex-direction: column; gap: 0.3rem; }
+    .clause-label { flex-basis: auto; padding-top: 0; line-height: 1.2; }
+    .edit-form .note.clause-note { margin-left: 0; }
+    .trigger-row, .drawer .trigger-row { grid-template-columns: 1fr; gap: 2px; padding-left: 1.25rem; }
+    .trigger-row .when { text-align: left; padding-right: 0; }
+    .trigger-row .when::before, .trigger-row .when::after { display: none; }
+    .trigger-row.new { box-shadow: inset 3px 0 0 var(--signal); }
+    .queue-row { grid-template-columns: 2.75rem 1fr; gap: 0.6rem; padding-right: 1rem; }
+    .priority { font-size: 2rem; }
+    .tile .value { font-size: 2.6rem; }
+    /* The expanded position goes to one column: labels become headings over their band. */
+    /* The row lives in a cell of a table wider than the phone; pin it to the
+       visible width so it never scrolls sideways with the table. */
+    .position-detail { grid-template-columns: minmax(0, 1fr) auto; padding: 0.9rem 1rem 1rem; position: sticky; left: 0; width: calc(100vw - 2rem); }
+    .position-detail::before { grid-column: 1; grid-row: 1; }
+    .position-detail > .actions > :first-child { grid-column: 2; grid-row: 1; }
+    .position-detail > .table-wrap { grid-column: 1 / -1; grid-row: 2; margin-top: 0.4rem; }
+    .position-detail > .detail-cols > * { grid-column: 1 / -1; }
+    .position-detail > .detail-cols > .stops { grid-row: 3; }
+    .position-detail > .detail-cols > .alert-col { grid-row: 4; }
+    .position-detail > .detail-cols > *::before { position: static; flex-basis: 100%; }
+    .position-detail > .detail-cols > *::after { display: none; }
+    .position-detail > .actions > :last-child { grid-column: 1 / -1; grid-row: 5; }
+    dl.kv-list { grid-template-columns: 1fr; gap: 0.1rem; }
+    dl.kv-list dd { margin-bottom: 0.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .toast { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="rail">
+  <h1 class="site-title">Equity watch</h1>
+  <nav class="site-nav" aria-label="Views">
+    <a href="#/" data-nav="overview"><span>Overview</span></a>
+    <a href="#/queue" data-nav="queue"><span>Revisit queue</span> <span id="nav-queue-count" class="nav-count"></span></a>
+    <a href="#/stories" data-nav="stories" id="nav-stories" hidden><span>Stories</span> <span id="nav-stories-count" class="nav-count"></span></a>
+    <a href="#/alerts" data-nav="alerts"><span>Alerts</span> <span id="nav-alerts-count" class="nav-count"></span></a>
+    <a href="#/holdings" data-nav="holdings" id="nav-holdings" hidden><span>Holdings</span> <span id="nav-holdings-count" class="nav-count"></span></a>
+  </nav>
+  <span id="updated" class="meta">loading…</span>
+  <details id="rail-pending" class="rail-pending" hidden>
+    <summary id="rail-pending-summary"></summary>
+    <ul id="rail-pending-list"></ul>
+  </details>
+  <span class="spacer"></span>
+  <div class="header-right">
+    <span id="notify-state" class="meta"></span>
+    <button id="notify-btn" hidden>Enable notifications</button>
+    <label id="agent-holdings-label" class="agent-holdings" hidden title="Lets an agent using this page's WebMCP tools read your positions, lots, stops and stories, and queue changes to them. That data goes to whatever model the agent runs on.">
+      <input type="checkbox" id="agent-holdings"> Agents may see holdings
+    </label>
+    <label id="agent-auto-approve-label" class="agent-holdings" hidden title="Queue changes an agent asks for through this page's WebMCP tools without showing a confirmation dialog for each. They still apply only at the next scheduled check, and appear in the pending list until then.">
+      <input type="checkbox" id="agent-auto-approve"> Agent changes without asking
+    </label>
+    <button id="ops-btn" hidden>Unlock editing</button>
+    <button id="theme-btn">☀️ Light</button>
+  </div>
+</header>
+
+<div class="content">
+<!-- The open revisit queue as a strip; renderStrip in app.js fills it from each poll. -->
+<div class="tape-wrap" id="tape-wrap" hidden>
+  <span class="tape-label" id="tape-label">To decide</span>
+  <ul class="tape" id="tape" aria-labelledby="tape-label"></ul>
+</div>
+
+<main>
+  <div id="error" class="card empty" hidden></div>
+  <div id="auth-banner" hidden></div>
+
+  <section id="view-overview">
+    <section id="tiles" class="tiles"></section>
+
+    <div class="section-header"><h2 class="section-title">Recent triggers</h2><span id="triggers-count" class="section-count"></span></div>
+    <div id="triggers" class="card"></div>
+
+    <div id="approaching-section" hidden>
+      <div class="section-header"><h2 class="section-title">Approaching</h2></div>
+      <details class="card"><summary id="approaching-summary"></summary><div id="approaching"></div></details>
+    </div>
+
+    <div id="quiet-section" hidden>
+      <div class="section-header"><h2 class="section-title">Quiet watches</h2></div>
+      <details class="card"><summary id="quiet-summary"></summary><ul id="quiet"></ul></details>
+    </div>
+  </section>
+
+  <section id="view-queue" hidden>
+    <div class="section-header"><h2 class="section-title">Revisit queue</h2><span id="queue-count" class="section-count"></span></div>
+    <div id="queue" class="card"></div>
+  </section>
+
+  <section id="view-stories" hidden>
+    <div class="section-header"><h2 class="section-title">Stories</h2><span id="stories-count" class="section-count"></span></div>
+    <div id="stories" class="card"></div>
+  </section>
+
+  <section id="view-holdings" hidden>
+    <div class="section-header"><h2 class="section-title">Holdings</h2><span id="holdings-count" class="section-count"></span></div>
+    <p id="holdings-status" class="note"></p>
+    <div class="toolbar" id="holdings-toolbar" hidden>
+      <select id="holdings-account" aria-label="Filter by account"><option value="all">All accounts</option></select>
+    </div>
+    <div id="lot-add" hidden></div>
+    <div id="holdings-pending" class="card" hidden></div>
+    <div class="card pinned-table">
+      <div class="table-head" aria-hidden="true" hidden><table id="holdings-head"></table></div>
+      <div class="table-wrap"><table id="holdings"></table></div>
+    </div>
+  </section>
+
+  <section id="view-alerts" hidden>
+    <div class="section-header"><h2 class="section-title">Alerts</h2><span id="alerts-status" class="section-count"></span></div>
+    <div class="toolbar">
+      <input id="alerts-search" type="search" placeholder="Search symbol or condition" aria-label="Search alerts">
+      <select id="alerts-kind" aria-label="Filter by kind"><option value="all">All kinds</option></select>
+      <select id="alerts-sort" aria-label="Sort">
+        <option value="symbol">Sort: symbol</option>
+        <option value="closest">Sort: closest to level</option>
+        <option value="triggered">Sort: most triggered</option>
+        <option value="recent">Sort: recently fired</option>
+        <option value="newest">Sort: newest</option>
+      </select>
+    </div>
+    <div id="alert-add" hidden></div>
+    <div id="ops-pending" class="card" hidden></div>
+    <div class="indexed">
+      <nav id="alerts-index" class="alpha-rail" aria-label="Jump to symbol" hidden></nav>
+      <div class="card pinned-table">
+        <div class="table-head" aria-hidden="true" hidden><table id="alerts-head"></table></div>
+        <div class="table-wrap"><table id="alerts-table"></table></div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+</div>
+
+<div id="backdrop" class="backdrop" hidden></div>
+<aside id="drawer" class="drawer" tabindex="-1" aria-label="Details" hidden>
+  <button id="drawer-close" class="drawer-close" aria-label="Close details">Close</button>
+  <div id="drawer-body"></div>
+</aside>
+
+<div id="chart-backdrop" class="backdrop chart-backdrop" hidden></div>
+<aside id="chart-panel" class="chart-panel" tabindex="-1" aria-label="Chart" hidden>
+  <button id="chart-close" class="drawer-close" aria-label="Close chart">Close</button>
+  <h2 id="chart-title" class="drawer-title"></h2>
+  <iframe id="chart-frame" title="TradingView chart"></iframe>
+</aside>
+
+<!-- Unlock editing: the ops token, asked for in the page (see the modal CSS for why not window.prompt). -->
+<dialog id="unlock-dialog" class="modal" aria-labelledby="unlock-title">
+  <form id="unlock-form" novalidate>
+    <strong id="unlock-title">Unlock editing</strong>
+    <p class="note">The ops token: the stack's OpsToken parameter. It stays in this browser, and also opens your private holdings.</p>
+    <label for="unlock-token">Ops token</label>
+    <input id="unlock-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <span id="unlock-error" class="form-error" role="alert"></span>
+    <div class="modal-buttons">
+      <button type="button" id="unlock-cancel">Cancel</button>
+      <button type="submit">Unlock</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toasts" aria-live="polite"></div>
+<script src="webmcp.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

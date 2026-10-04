@@ -1,0 +1,31 @@
+{
+  "name": "billbaran.us",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portfolio and interactive resume for billbaran.us",
+  "license": "MIT",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "node scripts/check-sanitized.ts public src && astro build && node scripts/check-sanitized.ts dist",
+    "preview": "astro preview",
+    "check": "astro check",
+    "demos": "tsx scripts/demos/build-all.ts",
+    "sanitize": "node scripts/check-sanitized.ts public src scripts infra .github dist"
+  },
+  "dependencies": {
+    "astro": "^7.3.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
