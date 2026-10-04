@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import Replay from '../components/Replay.astro';
 import RunDiagram from '../components/RunDiagram.astro';
+import Term from '../components/Term.astro';
 import replays from '../data/replays.json';
 
 const servers = [
@@ -154,8 +155,8 @@ const rules = [
           <table>
             <thead><tr><th></th><th class="num">Jev</th><th class="num">Local Qwen 27B</th></tr></thead>
             <tbody>
-              <tr><td>AUC</td><td class="num">76</td><td class="num">75</td></tr>
-              <tr><td>NDCG@20</td><td class="num"><strong>72</strong></td><td class="num">63</td></tr>
+              <tr><td><Term tip="Area under the ROC curve: the chance that a post I wanted is ranked above one I didn't, picking one of each at random. 50 is a coin flip and 100 is perfect.">AUC</Term></td><td class="num">76</td><td class="num">75</td></tr>
+              <tr><td><Term tip="Normalized discounted cumulative gain over the top 20: how close the first 20 headlines come to the best possible order. Positions near the top count most, and a must-read counts more than a read. 100 is perfect.">NDCG@20</Term></td><td class="num"><strong>72</strong></td><td class="num">63</td></tr>
               <tr><td>Wanted posts in top 10</td><td class="num"><strong>10/10</strong></td><td class="num">7/10</td></tr>
               <tr><td>Time for 160 headlines</td><td class="num"><strong>3 s</strong></td><td class="num">178 s</td></tr>
             </tbody>
