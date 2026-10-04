@@ -12,6 +12,10 @@
 - The checker reads `x.local`/`x.home`-style names as LAN hostnames. That's why the patterns file is `.sanitize-patterns` and not `.sanitize.local`.
 - spread-book's `book.js` hard-codes the owner's local time zone. The demo generator swaps any non-market `America/*` zone for `America/New_York`; keep that.
 - Outlier Caucus demos use **fictional members** on purpose. Don't swap in real ones: the demo's scores could read as a claim about a real person.
+- **Deploying:** every push to `main` deploys through GitHub Actions. `npm run deploy` does the same from a workstation, reading the bucket and distribution from the `billbaran-us` stack outputs.
+  - The workflow's targets are repo **secrets**, not variables, so the public Actions logs mask them. Keep the `--only-show-errors` on the syncs for the same reason.
+  - Don't add a job `environment:`. It changes the OIDC subject, and the deploy role trusts only `<prefix>:ref:refs/heads/main`. This repo uses GitHub's immutable subject form, set through the stack's `GitHubSubjectPrefix` parameter.
+- **DNS at the apex is shared with mail.** The MX records point to ImprovMX, and the apex TXT set holds both the SPF line and a Google site-verification value. Route 53 keeps one TXT set per name, so an edit must keep every value.
 - Commit as `Bill Baran <2525633+wkbaran@users.noreply.github.com>`, with no AI attribution trailers.
 - The run diagrams are inline SVG from `src/lib/run-diagrams.ts`, ported from `hermes/images/make-diagrams.py`. They're coloured with CSS tokens so they follow the theme and palette. Change the words there, not in an image.
 - Each demo generator passes `theme: { key, toggle }`: the app's own localStorage key for its mode and a selector for its own toggle button. The shim uses the toggle so the app updates its labels and charts itself. If an app renames either one, update the generator.
