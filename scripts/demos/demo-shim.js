@@ -19,7 +19,7 @@
 //     the app registers with document.modelContext.registerTool() and exposes
 //     them as window.__demoAgent (list, call, onChange). Calls go through the
 //     tool's own execute(), so the app's checks and consent dialog all apply.
-//     With a native modelContext the browser's own is left in place;
+//     With a native modelContext each registration is passed on to it too;
 //   - service workers are not registered;
 //   - links to other sites open in a new tab (inside the portfolio's iframe
 //     most of them, GitHub included, refuse to load);
@@ -140,37 +140,45 @@
   }
 
   // ---- WebMCP stand-in ------------------------------------------------------------
+  // Records every tool the app registers, for the portfolio's agent console.
+  // Where the browser has WebMCP of its own, each registration is passed on to
+  // it as well, so a real agent and the console see the same tools.
   if (cfg.webmcp) {
-    const native = document.modelContext || navigator.modelContext;
-    if (native) {
-      window.__demoAgent = { native: true };
-    } else {
-      const tools = new Map();
-      const listeners = new Set();
-      const changed = () => listeners.forEach((f) => { try { f(); } catch { /* a closed listener */ } });
-      const host = {
-        registerTool(tool, options = {}) {
-          tools.set(tool.name, tool);
-          // The current spec unregisters by aborting the signal passed here.
-          options.signal?.addEventListener("abort", () => {
-            if (tools.get(tool.name) === tool) { tools.delete(tool.name); changed(); }
-          });
-          changed();
-        },
-        unregisterTool(name) { if (tools.delete(name)) changed(); },
-      };
+    const native = document.modelContext || navigator.modelContext || null;
+    const nativeOk = native && typeof native.registerTool === "function";
+    const tools = new Map();
+    const listeners = new Set();
+    const changed = () => listeners.forEach((f) => { try { f(); } catch { /* a closed listener */ } });
+    const host = {
+      registerTool(tool, options = {}) {
+        tools.set(tool.name, tool);
+        // The current spec unregisters by aborting the signal passed here.
+        options.signal?.addEventListener("abort", () => {
+          if (tools.get(tool.name) === tool) { tools.delete(tool.name); changed(); }
+        });
+        changed();
+        return nativeOk ? native.registerTool(tool, options) : undefined;
+      },
+      unregisterTool(name) {
+        if (tools.delete(name)) changed();
+        if (nativeOk && typeof native.unregisterTool === "function") return native.unregisterTool(name);
+      },
+    };
+    try {
       Object.defineProperty(document, "modelContext", { value: host, configurable: true });
-      window.__demoAgent = {
-        native: false,
-        list: () => [...tools.values()].map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
-        call: (name, args) => {
-          const tool = tools.get(name);
-          if (!tool) return Promise.reject(new Error(`No tool named ${name} is registered right now.`));
-          return Promise.resolve(tool.execute(args ?? {}, {}));
-        },
-        onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
-      };
+    } catch {
+      /* can't shadow it here: the console stays empty, real agents still work */
     }
+    window.__demoAgent = {
+      native: Boolean(nativeOk),
+      list: () => [...tools.values()].map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+      call: (name, args) => {
+        const tool = tools.get(name);
+        if (!tool) return Promise.reject(new Error(`No tool named ${name} is registered right now.`));
+        return Promise.resolve(tool.execute(args ?? {}, {}));
+      },
+      onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
+    };
   }
 
   // ---- follow the portfolio page's theme ----------------------------------------

@@ -116,7 +116,9 @@ const { frame, dataBase } = Astro.props;
         list.append(box);
       }
       if (!selected || !tools.some((t) => t.name === selected)) select(tools[0]?.name ?? null);
-      status.textContent = `The demo registered ${tools.length} tools. This panel calls them the way an agent in your browser would.`;
+      status.textContent = agent?.native
+        ? `The demo registered ${tools.length} tools, with your browser's own WebMCP too, so its agent or DevTools → Application → WebMCP can call them as well. This panel calls them the same way.`
+        : `The demo registered ${tools.length} tools. This panel calls them the way an agent in your browser would.`;
     }
 
     function select(name: string | null) {
@@ -166,10 +168,6 @@ const { frame, dataBase } = Astro.props;
       const a = (iframe?.contentWindow as (Window & { __demoAgent?: Agent }) | null)?.__demoAgent;
       if (!a) return;
       agent = a;
-      if (a.native) {
-        status.textContent = 'Your browser has WebMCP turned on, so the demo registered its tools with it. Use your browser’s agent (or DevTools → Application → WebMCP) to call them.';
-        return;
-      }
       await loadSamples();
       layout.hidden = false;
       unsubscribe = a.onChange?.(() => render());
