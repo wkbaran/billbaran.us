@@ -32,7 +32,7 @@ const hobbies = [
     link: { href: '/projects/kotoba/', label: 'Kotoba no Sekai' },
   },
   {
-    title: 'Options & markets',
+    title: 'Options and markets',
     body: 'I trade credit spreads and track a long-term portfolio, so I build my own tools for it: alerts that suggest what to do next, risk heatmaps, and a look at what Congress is trading.',
     link: { href: '/projects/spread-book/', label: 'Spread Book' },
   },
@@ -41,32 +41,21 @@ const hobbies = [
 <Base current="home">
   <section class="hero">
     <div class="wrap">
-      <span class="eyebrow">{SITE.role} · {SITE.location}</span>
-      <h1>Bill Baran<span class="dot">.</span></h1>
-      <p class="lede">{SITE.summary}</p>
-      <ul class="facts">
-        <li><strong>{years}</strong> years shipping software</li>
-        <li><strong>Java</strong> Spring · Micronaut · Grails</li>
-        <li><strong>AWS</strong> architecture &amp; IaC</li>
-        <li><strong>LLM agents</strong> MCP servers &amp; workflows</li>
-      </ul>
-      <div class="cta">
-        <a class="btn btn-signal" href="#projects">See the projects</a>
-        <a class="btn" href="/llm-workflows/">How I build with LLMs</a>
-        <a class="btn" href="#contact">Get in touch</a>
-      </div>
+      <h1 class="name">Bill Baran</h1>
+      <p class="role">Software architect in {SITE.location}, {years} years in.</p>
+      <p class="lede">
+        {SITE.summary}{' '}
+        Below are four apps I run every day, each with a working demo. There's also <a href="/llm-workflows/">how I build with LLMs</a>, and you can <a href="#contact">email me</a>.
+      </p>
     </div>
   </section>
 
-  <section class="block" id="projects">
+  <section class="block first" id="projects" aria-labelledby="projects-h">
     <div class="wrap">
       <div class="section-head">
-        <div>
-          <span class="eyebrow">Projects</span>
-          <h2>Things I run every day</h2>
-        </div>
-        <p class="sub prose">
-          Each one is a real self-hosted app that I use daily. The demos here run each app's actual page code on invented data. Their live data comes from services licensed for personal use, so it isn't shown.
+        <h2 id="projects-h">Things I run every day</h2>
+        <p class="sub note">
+          These are self-hosted apps I use daily. Each demo runs the app's own page code on invented data, because the live data comes from services licensed for personal use.
         </p>
       </div>
       <div class="grid projects">
@@ -75,156 +64,147 @@ const hobbies = [
 
       <div class="llm-teaser">
         <div>
-          <span class="eyebrow">LLM workflows</span>
           <h3><a href="/llm-workflows/">Scheduled agents that are cheap and don't make mistakes</a></h3>
           <p class="sub">
             Three MCP servers I wrote, for Substack, Medium and Spotify, plus the Hermes skills and cron jobs that use them. They produce a daily reading digest and a playlist twice a week.
             Moving the bookkeeping out of the prompt and into code cut the Medium digest from <strong>$3.26 to $0.27</strong> a run.
             The Substack digest and the playlist now run entirely on a local model.
           </p>
-          <a class="go" href="/llm-workflows/#replay">Step through a real run →</a>
+          <a class="go" href="/llm-workflows/#replay">Step through a real run</a>
         </div>
         <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="The model acts at steps 2, 3, 4 and 6. Everything in the server lane is code." />
       </div>
     </div>
   </section>
 
-  <section class="block" id="skills">
+  <section class="block" id="skills" aria-labelledby="skills-h">
     <div class="wrap">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Skills</span>
-          <h2>What I bring</h2>
-        </div>
-      </div>
-      <div class="grid skills">
+      <h2 id="skills-h">Skills</h2>
+      <dl class="skills">
         {skills.map((s) => (
-          <div class="card">
-            <h3>{s.data.group}</h3>
-            <ul class="chips">{s.data.items.map((i) => <li>{i}</li>)}</ul>
+          <div>
+            <dt>{s.data.group}</dt>
+            <dd>{s.data.items.join(', ')}</dd>
           </div>
         ))}
-      </div>
+      </dl>
     </div>
   </section>
 
-  <section class="block" id="experience">
+  <section class="block" id="experience" aria-labelledby="experience-h">
     <div class="wrap">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Experience</span>
-          <h2>Where I've worked</h2>
-        </div>
-      </div>
+      <h2 id="experience-h">Experience</h2>
       <ol class="timeline">
         {jobs.map((j) => (
           <li class:list={['job', { draft: dev && j.draft }]}>
-            <div class="when">{j.start}–{j.end ?? 'present'}</div>
+            <div class="when">{j.start}–{j.end ?? 'now'}</div>
             <div>
-              <h3>{j.role} <span class="org">· {j.org}</span></h3>
+              <h3>{j.role}, <span class="org">{j.org}</span></h3>
               {j.location && <p class="muted loc">{j.location}</p>}
               <div class="prose sub"><j.Content /></div>
             </div>
           </li>
         ))}
+        <li class="job">
+          <div class="when">Education</div>
+          <div><h3>Rose-Hulman Institute of Technology</h3></div>
+        </li>
       </ol>
-      <p class="muted"><span class="eyebrow">Education</span>Rose-Hulman Institute of Technology</p>
     </div>
   </section>
 
-  <section class="block" id="also">
+  <section class="block" id="also" aria-labelledby="also-h">
     <div class="wrap">
       <div class="section-head">
-        <div>
-          <span class="eyebrow">Also built</span>
-          <h2>Smaller tools</h2>
-        </div>
-        <a class="btn" href={SITE.github} target="_blank" rel="noopener">Everything on GitHub ↗</a>
+        <h2 id="also-h">Smaller tools</h2>
+        <a href={SITE.github} target="_blank" rel="noopener">Everything else on GitHub ↗</a>
       </div>
-      <div class="grid also">
+      <ul class="also">
         {alsoBuilt.map((r) => (
-          <a class="card also-card" href={r.data.repo} target="_blank" rel="noopener">
-            <h3>{r.data.name}</h3>
-            <p class="sub">{r.data.blurb}</p>
-            <ul class="chips">{r.data.tags.map((t) => <li>{t}</li>)}</ul>
-          </a>
+          <li>
+            <a href={r.data.repo} target="_blank" rel="noopener">{r.data.name} ↗</a>
+            <span class="sub">{r.data.blurb}</span>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   </section>
 
-  <section class="block" id="hobbies">
+  <section class="block" id="hobbies" aria-labelledby="hobbies-h">
     <div class="wrap">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Off the clock</span>
-          <h2>Hobbies that turn into projects</h2>
-        </div>
-      </div>
-      <div class="grid hobbies">
+      <h2 id="hobbies-h">Off the clock</h2>
+      <div class="hobbies">
         {hobbies.map((h) => (
-          <div class="card">
+          <div>
             <h3>{h.title}</h3>
-            <p class="sub">{h.body}</p>
-            {h.link && <a href={h.link.href}>{h.link.label} →</a>}
+            <p class="sub">
+              {h.body}
+              {h.link && <> <a href={h.link.href}>See {h.link.label}.</a></>}
+            </p>
           </div>
         ))}
       </div>
     </div>
   </section>
 
-  <section class="block" id="contact">
+  <section class="block" id="contact" aria-labelledby="contact-h">
     <div class="wrap">
-      <span class="eyebrow">Contact</span>
-      <h2>Let's talk</h2>
-      <p class="lede">Hiring for architecture, AWS, Java, or agent and LLM engineering? Or just curious how something here works? Send me an email.</p>
+      <h2 id="contact-h">Contact</h2>
+      <p class="lede">Hiring for architecture, AWS, Java, or agent and LLM engineering? Or curious how something here works? Email is the best way to reach me.</p>
       <Contact />
     </div>
   </section>
 </Base>
 
 <style>
-  .hero { padding: clamp(4rem, 12vw, 8rem) 0 clamp(3rem, 8vw, 5rem); background:
-    radial-gradient(60rem 30rem at 85% -10%, var(--wash), transparent 70%); }
-  .hero h1 { margin-bottom: 1.2rem; }
-  .dot { color: var(--signal); }
-  .facts { list-style: none; padding: 0; margin: 2rem 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; max-width: 56rem; }
-  .facts li { border-left: 2px solid var(--signal); padding: .2rem 0 .2rem .9rem; color: var(--sub); font-size: .95rem; }
-  .facts strong { display: block; color: var(--ink); font-size: 1.15rem; font-stretch: 90%; }
-  .cta { display: flex; flex-wrap: wrap; gap: .7rem; }
+  .hero { padding: clamp(3.5rem, 10vw, 7rem) 0 clamp(2rem, 5vw, 3.5rem); }
+  /* The one loud element: the name set at Archivo's widest. */
+  .name {
+    font-size: clamp(3rem, 14.5vw, 7.5rem); font-weight: 850; font-stretch: 125%;
+    letter-spacing: -0.035em; line-height: .92; margin: 0 0 1.4rem;
+  }
+  .role { font-size: var(--step-2); font-weight: 600; font-stretch: 90%; margin: 0 0 .8rem; }
+  .lede a { color: var(--ink); text-decoration-color: var(--signal); }
 
+  .block.first { border-top: 0; padding-top: 0; }
+  .note { margin: 0; max-width: 52ch; font-size: var(--step--1); }
   .projects { grid-template-columns: repeat(auto-fill, minmax(min(100%, 31rem), 1fr)); }
-  .section-head .prose { margin: 0; max-width: 46ch; font-size: .95rem; }
 
-  .llm-teaser { margin-top: 1.4rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 1.6rem; align-items: center;
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.6rem; }
-  .llm-teaser h3 { font-size: 1.45rem; font-stretch: 85%; }
+  .llm-teaser { margin-top: 1.2rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 2rem; align-items: center;
+    border-top: 1px solid var(--line); padding-top: 2rem; }
+  .llm-teaser h3 { font-size: var(--step-3); font-stretch: 85%; font-weight: 650; }
   .llm-teaser h3 a { text-decoration: none; }
   .llm-teaser h3 a:hover { text-decoration: underline; text-decoration-color: var(--signal); }
-  .llm-teaser .go { color: var(--signal); font-weight: 650; text-decoration: none; }
-  .llm-teaser .go:hover { text-decoration: underline; }
+  .llm-teaser .go { font-weight: 650; text-decoration-color: var(--signal); }
   @media (max-width: 860px) { .llm-teaser { grid-template-columns: 1fr; } }
 
-  .skills { grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); }
-  .skills h3 { font-size: 1rem; margin-bottom: .8rem; }
+  .skills { margin: 0; display: grid; }
+  .skills > div { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1.5rem; padding: .85rem 0; border-bottom: 1px solid var(--line); }
+  .skills > div:first-child { border-top: 1px solid var(--line); }
+  .skills dt { font-weight: 650; }
+  .skills dd { margin: 0; color: var(--sub); max-width: 70ch; }
+  @media (max-width: 620px) { .skills > div { grid-template-columns: 1fr; gap: .2rem; } }
 
-  .timeline { list-style: none; padding: 0; margin: 0 0 2rem; display: grid; gap: 2rem; }
+  .timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 2.2rem; }
   .job { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1.2rem; }
+  .job h3 { margin-bottom: .2rem; }
   .job.draft { outline: 1px dashed var(--signal); outline-offset: 8px; }
-  .job.draft::before { content: 'draft: pending career interview'; position: absolute; transform: translateY(-1.6rem); font-size: .7rem; color: var(--signal); }
-  .when { font-stretch: 85%; font-weight: 650; color: var(--signal); padding-top: .15rem; }
+  .job.draft::before { content: 'Draft: waiting on the career interview'; position: absolute; transform: translateY(-1.6rem); font-size: .7rem; color: var(--signal); }
+  .when { font-stretch: 85%; font-weight: 650; color: var(--sub); padding-top: .1rem; font-variant-numeric: tabular-nums; }
   .org { font-weight: 400; color: var(--sub); }
-  .loc { margin: -.3rem 0 .6rem; font-size: .9rem; }
-  .job :global(ul) { padding-left: 1.1rem; margin: 0; }
+  .loc { margin: 0 0 .6rem; font-size: var(--step--1); }
+  .job :global(ul) { padding-left: 1.1rem; margin: .4rem 0 0; }
   .job :global(li) { margin-bottom: .4rem; }
   @media (max-width: 620px) { .job { grid-template-columns: 1fr; gap: .3rem; } }
 
-  .also { grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); }
-  .also-card { text-decoration: none; display: grid; gap: .5rem; align-content: start; }
-  .also-card:hover { border-color: var(--line-strong); }
-  .also-card h3 { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 1rem; }
-  .also-card p { margin: 0; font-size: .92rem; }
+  .also { list-style: none; padding: 0; margin: 0; }
+  .also li { display: grid; grid-template-columns: 16rem minmax(0, 1fr); gap: 1.5rem; padding: .85rem 0; border-bottom: 1px solid var(--line); }
+  .also li:first-child { border-top: 1px solid var(--line); }
+  .also a { font-weight: 650; text-decoration: none; }
+  .also a:hover { text-decoration: underline; text-decoration-color: var(--signal); }
+  @media (max-width: 620px) { .also li { grid-template-columns: 1fr; gap: .2rem; } }
 
-  .hobbies { grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
-  .hobbies p { font-size: .95rem; }
+  .hobbies { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); gap: 1.8rem 3rem; }
+  .hobbies h3 { font-size: var(--step-1); margin-bottom: .4rem; }
+  .hobbies p { margin: 0; max-width: 60ch; }
 </style>

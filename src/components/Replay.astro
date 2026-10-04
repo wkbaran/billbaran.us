@@ -42,9 +42,9 @@ const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subage
               {s.call && (<><h4>Arguments</h4><pre class="call"><code>{s.call}</code></pre></>)}
               {s.output && (<><h4>{s.actor === 'subagent' && !s.call ? 'Reply' : 'Result'}</h4><pre class="out"><code>{s.output}</code></pre></>)}
               <nav class="pager">
-                <button type="button" data-go="-1" disabled={j === 0}>← Back</button>
+                <button type="button" data-go="-1" disabled={j === 0}>Back</button>
                 <span class="muted">Step {j + 1} of {r.steps.length}</span>
-                <button type="button" class="btn-signal" data-go="1" disabled={j === r.steps.length - 1}>Next →</button>
+                <button type="button" class="btn-signal" data-go="1" disabled={j === r.steps.length - 1}>Next step</button>
               </nav>
             </article>
           ))}
@@ -106,7 +106,7 @@ const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subage
   @media (max-width: 860px) { .steps { position: static; grid-auto-flow: column; grid-auto-columns: minmax(10rem, 1fr); overflow-x: auto; padding-bottom: .4rem; } }
   .step { width: 100%; text-align: left; display: grid; grid-template-columns: 1.6rem 1fr; gap: 0 .5rem; padding: .55rem .7rem; background: var(--surface); }
   .step .n { grid-row: span 2; font-weight: 700; color: var(--muted); }
-  .step .who { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+  .step .who { font-size: .78rem; font-weight: 600; }
   .step .what { font-size: .88rem; font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
   .step[aria-current] { border-color: var(--signal); background: var(--wash); }
   .step[aria-current] .n { color: var(--signal); }
@@ -119,8 +119,8 @@ const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subage
   .pane header { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin-bottom: .6rem; }
   .pane h3 { margin: 0; }
   .pane h3 code { background: none; padding: 0; font-size: 1.05rem; }
-  .badge { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; border: 1px solid currentColor; border-radius: 999px; padding: .1rem .5rem; }
-  h4 { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1.2rem 0 .4rem; }
+  .badge { font-size: .8rem; font-weight: 650; border: 1px solid currentColor; border-radius: 999px; padding: .05rem .55rem; }
+  h4 { font-size: var(--step--1); font-weight: 600; color: var(--muted); margin: 1.2rem 0 .4rem; }
   pre { margin: 0; padding: .9rem 1rem; background: color-mix(in oklab, var(--ground) 60%, black); color: color-mix(in oklab, var(--ink) 92%, var(--ground));
     border: 1px solid var(--line); border-radius: var(--radius-s); overflow: auto; max-height: 26rem; font-size: .8rem; line-height: 1.5; white-space: pre; }
   :global([data-theme="light"]) pre { background: color-mix(in oklab, var(--ground) 80%, var(--ink) 4%); }

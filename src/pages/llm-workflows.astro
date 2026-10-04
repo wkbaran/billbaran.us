@@ -51,7 +51,6 @@ const rules = [
 <Base title="LLM workflows" description="MCP servers and scheduled agent jobs where the model only judges and code does the bookkeeping." current="llm">
   <section class="intro">
     <div class="wrap">
-      <span class="eyebrow">LLM workflows</span>
       <h1>The model judges.<br />The server does everything else.</h1>
       <p class="lede">
         Every morning, scheduled agents post a reading digest of Substack and Medium to my Discord. Twice a week they build a Spotify playlist of new music.
@@ -69,7 +68,6 @@ const rules = [
 
   <section class="block flow">
     <div class="wrap">
-      <span class="eyebrow">Architecture</span>
       <h2>From feed to Discord</h2>
       <figure class="arch" aria-label="Sources feed MCP servers, which Hermes cron jobs drive; models judge, and results go to Discord and Spotify.">
         <div class="col">
@@ -101,7 +99,6 @@ const rules = [
 
   <section class="block" id="replay">
     <div class="wrap">
-      <span class="eyebrow">Step through a run</span>
       <h2>What the model sees, and what the server does</h2>
       <p class="sub prose">
         These are the worked examples from each server's docs, with fictional posts and tracks. A test checks them against real tool output, so every call and every result below is exactly what the tools produce.
@@ -112,14 +109,13 @@ const rules = [
 
   <section class="block">
     <div class="wrap">
-      <span class="eyebrow">The servers</span>
       <h2>Three MCP servers, one design</h2>
       <div class="grid servers">
         {servers.map((s) => (
           <article class="card">
             <h3><a href={s.repo} target="_blank" rel="noopener">{s.name} ↗</a></h3>
             <p class="sub">{s.what}</p>
-            <ul class="chips tools">{s.tools.map((t) => <li><code>{t}</code></li>)}</ul>
+            <p class="tools">{s.tools.map((t, i) => <>{i > 0 && ' '}<code>{t}</code></>)}</p>
             <ul class="notes">{s.notes.map((n) => <li>{n}</li>)}</ul>
           </article>
         ))}
@@ -134,7 +130,6 @@ const rules = [
   <section class="block">
     <div class="wrap two">
       <div>
-        <span class="eyebrow">Results</span>
         <h2>Ten days of Medium runs</h2>
         <div class="table-scroll">
           <table>
@@ -161,7 +156,6 @@ const rules = [
         </div>
       </div>
       <div>
-        <span class="eyebrow">Lessons</span>
         <h2>What I'd pass on</h2>
         <ol class="rules">
           {rules.map(([t, d]) => <li><strong>{t}.</strong> <span class="sub">{d}</span></li>)}
@@ -172,7 +166,6 @@ const rules = [
 
   <section class="block">
     <div class="wrap">
-      <span class="eyebrow">Run diagrams</span>
       <h2>Who acts at each step</h2>
       <div class="diagrams">
         <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="A digest run. The model acts at steps 2, 3, 4 and 6." />
@@ -183,17 +176,17 @@ const rules = [
 </Base>
 
 <style>
-  .intro { padding: clamp(3rem, 9vw, 6rem) 0 3rem; background: radial-gradient(60rem 30rem at 85% -10%, var(--wash), transparent 70%); }
+  .intro { padding: clamp(2.5rem, 8vw, 5rem) 0 3rem; }
   .intro h1 { font-size: clamp(2.1rem, 5.4vw, 3.8rem); }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; margin-top: 2.2rem; }
-  .stats div { border-left: 2px solid var(--signal); padding-left: .9rem; }
-  .stats strong { display: block; font-size: 1.5rem; font-stretch: 85%; }
+  .stats div { border-top: 1px solid var(--line-strong); padding-top: .7rem; }
+  .stats strong { display: block; font-size: var(--step-3); font-stretch: 85%; }
   .stats span { color: var(--sub); font-size: .9rem; }
 
   .arch { margin: 1.5rem 0 0; display: grid; grid-template-columns: 1fr auto 1.2fr auto 1.2fr auto 1fr; gap: .8rem; align-items: center; }
   .arch .col { display: grid; gap: .5rem; align-content: start; }
-  .arch h3 { font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; color: var(--sub); margin: 0 0 .2rem; }
-  .arch small { text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
+  .arch h3 { font-size: var(--step-0); color: var(--ink); margin: 0 0 .2rem; }
+  .arch small { color: var(--muted); font-weight: 400; }
   .node { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s); padding: .5rem .7rem; font-size: .88rem; }
   .server .node { border-color: color-mix(in oklab, #3c9a73 55%, var(--line)); }
   .model .node { border-color: color-mix(in oklab, var(--signal) 55%, var(--line)); }
@@ -203,8 +196,8 @@ const rules = [
 
   .servers { grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr)); margin-bottom: 1.2rem; }
   .servers h3 a { text-decoration: none; font-family: ui-monospace, Menlo, monospace; font-size: 1rem; }
-  .tools { margin: .2rem 0 1rem; }
-  .tools code { background: none; padding: 0; font-size: .75rem; }
+  .tools { margin: .2rem 0 1rem; line-height: 2; }
+  .tools code { font-size: .75rem; }
   .notes { padding-left: 1.1rem; margin: 0; font-size: .9rem; color: var(--sub); }
   .notes li { margin-bottom: .5rem; }
   .notes li::marker { color: var(--signal); }
@@ -215,7 +208,7 @@ const rules = [
   .table-scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 550; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+  th { color: var(--muted); font-weight: 600; font-size: var(--step--1); }
   .num { text-align: right; white-space: nowrap; }
   tr.hl td { background: var(--wash); font-weight: 650; }
   .mt { margin-top: 2rem; font-size: 1rem; }

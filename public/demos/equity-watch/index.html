@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
 <head>
-<script>window.__DEMO__={"name":"equity-watch","project":"equity-watch","anchor":"2026-10-04T22:05:28.260Z","shift":["dashboard.json","alerts.json"],"ops":{"endpoint":"ops","document":"dashboard.json"},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"],"storage":{"equity-watch.opsToken":"demo"}};
+<script>window.__DEMO__={"name":"equity-watch","project":"equity-watch","anchor":"2026-10-04T22:17:17.304Z","shift":["dashboard.json","alerts.json"],"ops":{"endpoint":"ops","document":"dashboard.json"},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"],"storage":{"equity-watch.opsToken":"demo"}};
 // Demo shim, inlined as the first script of every page under /demos/.
 //
 // The demos are each app's real page fed with invented data. This keeps them
@@ -149,15 +149,15 @@
     const tag = document.createElement("div");
     tag.setAttribute("role", "note");
     tag.style.cssText =
-      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 11px/1.2 system-ui,sans-serif;" +
-      "letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-radius:999px;" +
+      "position:fixed;right:10px;bottom:10px;z-index:2147483647;font:600 12px/1.2 system-ui,sans-serif;" +
+      "padding:6px 11px;border-radius:999px;" +
       "background:#111;color:#fff;opacity:.82;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
-    tag.textContent = "Demo · invented data";
+    tag.textContent = "Demo with invented data";
     if (!framed) {
       const back = document.createElement("a");
       back.href = "/projects/" + (cfg.project || cfg.name || "") + "/";
-      back.textContent = " · back to billbaran.us";
-      back.style.cssText = "color:inherit;text-transform:none;letter-spacing:0";
+      back.textContent = "Back to billbaran.us";
+      back.style.cssText = "color:inherit;margin-left:10px";
       tag.append(back);
     }
     document.body.append(tag);
