@@ -13,4 +13,5 @@
 - spread-book's `book.js` hard-codes the owner's local time zone. The demo generator swaps any non-market `America/*` zone for `America/New_York`; keep that.
 - Outlier Caucus demos use **fictional members** on purpose. Don't swap in real ones: the demo's scores could read as a claim about a real person.
 - Commit as `Bill Baran <2525633+wkbaran@users.noreply.github.com>`, with no AI attribution trailers.
+- The run diagrams are inline SVG from `src/lib/run-diagrams.ts`, ported from `hermes/images/make-diagrams.py`. They're coloured with CSS tokens so they follow the theme and palette. Change the words there, not in an image.
 - Experience entries with `draft: true` are placeholders waiting on a career interview. In dev they show a dashed outline.

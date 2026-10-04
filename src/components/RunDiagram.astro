@@ -1,0 +1,79 @@
+---
+/**
+ * A run diagram (src/lib/run-diagrams.ts), drawn inline so it follows the
+ * page's light/dark theme and palette. Clicking it opens a larger copy in a
+ * dialog, and the reader stays on the page.
+ */
+import { RUN_DIAGRAMS, type RunDiagramKind } from '../lib/run-diagrams';
+
+interface Props { kind: RunDiagramKind; title: string; caption?: string }
+const { kind, title, caption } = Astro.props;
+const id = `rd-${kind}-${Math.random().toString(36).slice(2, 8)}`;
+const inline = RUN_DIAGRAMS[kind](`${id}-a`);
+const large = RUN_DIAGRAMS[kind](`${id}-b`);
+---
+<figure class="rd">
+  <button type="button" class="rd-open" data-dialog={id} aria-haspopup="dialog" aria-label={`Enlarge: ${title}`}>
+    <Fragment set:html={inline} />
+    <span class="rd-hint" aria-hidden="true">⤢ Enlarge</span>
+  </button>
+  {caption && <figcaption>{caption}</figcaption>}
+  <dialog class="rd-dialog" id={id} aria-label={title}>
+    <div class="rd-dialog-head">
+      <strong>{title}</strong>
+      <form method="dialog"><button type="submit" aria-label="Close">✕ Close</button></form>
+    </div>
+    <div class="rd-dialog-body"><Fragment set:html={large} /></div>
+    {caption && <p class="rd-dialog-caption">{caption}</p>}
+  </dialog>
+</figure>
+
+<script>
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.rd-open')) {
+    const dialog = document.getElementById(btn.dataset.dialog!) as HTMLDialogElement | null;
+    if (!dialog || btn.dataset.wired) continue;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', () => dialog.showModal());
+    // A click on the backdrop (the dialog element itself, outside its content) closes it.
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+  }
+</script>
+
+<style>
+  .rd { margin: 0; }
+  .rd-open { display: block; position: relative; width: 100%; padding: 0; background: none; border: 0; cursor: zoom-in; border-radius: var(--radius-m); }
+  .rd-open:hover .rd-hint, .rd-open:focus-visible .rd-hint { opacity: 1; }
+  .rd-hint { position: absolute; right: .6rem; bottom: .6rem; font-size: .75rem; font-weight: 650; padding: .2rem .55rem; border-radius: 999px;
+    background: var(--signal); color: var(--on-signal); opacity: .85; transition: opacity .15s; }
+  figcaption { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
+
+  .rd-dialog { width: min(96vw, 1560px); max-width: none; max-height: 92vh; padding: 0; border: 1px solid var(--line-strong);
+    border-radius: var(--radius-m); background: var(--ground); color: var(--ink); box-shadow: var(--shadow); }
+  .rd-dialog::backdrop { background: color-mix(in oklab, black 62%, transparent); backdrop-filter: blur(2px); }
+  .rd-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .7rem 1rem; border-bottom: 1px solid var(--line); position: sticky; left: 0; }
+  .rd-dialog-head form { margin: 0; }
+  .rd-dialog-body { overflow-x: auto; padding: 1rem; }
+  /* Readable size on a phone: keep the diagram wide and let it scroll sideways. */
+  .rd-dialog-body :global(.run-diagram) { min-width: 1100px; }
+  .rd-dialog-caption { margin: 0; padding: 0 1rem 1rem; color: var(--muted); font-size: .9rem; }
+
+  /* ---- the diagram itself, coloured from the theme tokens ---- */
+  .rd :global(.run-diagram) { display: block; width: 100%; height: auto; --rd-server: #3c9a73; }
+  :global([data-theme="light"]) .rd :global(.run-diagram) { --rd-server: #23704f; }
+  .rd :global(.rd-model) { --rd-accent: var(--signal); }
+  .rd :global(.rd-server) { --rd-accent: var(--rd-server); }
+  .rd :global(.rd-lane) { fill: color-mix(in oklab, var(--rd-accent) 13%, var(--ground)); }
+  .rd :global(.rd-lane-label) { fill: var(--rd-accent); font-family: 'Archivo', system-ui, sans-serif; }
+  .rd :global(.rd-lane-name) { font-size: 21px; font-weight: 700; }
+  .rd :global(.rd-lane-sub) { font-size: 17px; fill: var(--sub); }
+  .rd :global(.rd-card) { fill: var(--surface); stroke: var(--rd-accent); stroke-width: 2.5; }
+  .rd :global(.rd-dot) { fill: var(--rd-accent); }
+  .rd :global(.rd-num) { fill: var(--ground); font: 700 17px 'Archivo', system-ui, sans-serif; }
+  .rd :global(.rd-text) { font-family: 'Archivo', system-ui, sans-serif; color: var(--ink); }
+  .rd :global(.rd-title) { font-size: 19px; font-weight: 700; line-height: 1.25; margin: 3px 0 8px 36px; min-height: 26px; color: var(--rd-accent); }
+  .rd :global(.rd-body) { font-size: 16.5px; line-height: 1.38; color: var(--sub); }
+  .rd :global(.rd-body code) { font-size: 15px; background: var(--raised); padding: 0 3px; border-radius: 3px; }
+  .rd :global(.rd-arrow) { fill: none; stroke: var(--muted); stroke-width: 2.2; }
+  .rd :global(.rd-dashed) { stroke-dasharray: 7 6; }
+  .rd :global(.rd-head) { fill: var(--muted); }
+</style>

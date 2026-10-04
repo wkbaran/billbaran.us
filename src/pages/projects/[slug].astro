@@ -25,7 +25,7 @@ const demoSrc = p.demo ? `/demos/${p.demo}/${p.demoPage}` : null;
       <p class="lede">{p.tagline}</p>
       <div class="links">
         {demoSrc && <a class="btn btn-signal" href="#demo">Try the demo</a>}
-        <a class="btn" href={p.repo}>Source on GitHub</a>
+        <a class="btn" href={p.repo} target="_blank" rel="noopener">Source on GitHub ↗</a>
         {p.live && <span class="live muted">Runs daily at {new URL(p.live).host} on my own data</span>}
       </div>
     </div>

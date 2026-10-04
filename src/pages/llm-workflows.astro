@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import Replay from '../components/Replay.astro';
+import RunDiagram from '../components/RunDiagram.astro';
 import replays from '../data/replays.json';
 
 const servers = [
@@ -54,7 +55,7 @@ const rules = [
       <h1>The model judges.<br />The server does everything else.</h1>
       <p class="lede">
         Every morning, scheduled agents post a reading digest of Substack and Medium to my Discord. Twice a week they build a Spotify playlist of new music.
-        They run on <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> on a home server, using three MCP servers I wrote.
+        They run on <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent</a> on a home server, using three MCP servers I wrote.
         The first versions were long prompts that did everything. The current ones give the model only judgment calls and handle everything else in code.
       </p>
       <div class="stats">
@@ -116,7 +117,7 @@ const rules = [
       <div class="grid servers">
         {servers.map((s) => (
           <article class="card">
-            <h3><a href={s.repo}>{s.name}</a></h3>
+            <h3><a href={s.repo} target="_blank" rel="noopener">{s.name} ↗</a></h3>
             <p class="sub">{s.what}</p>
             <ul class="chips tools">{s.tools.map((t) => <li><code>{t}</code></li>)}</ul>
             <ul class="notes">{s.notes.map((n) => <li>{n}</li>)}</ul>
@@ -174,8 +175,8 @@ const rules = [
       <span class="eyebrow">Run diagrams</span>
       <h2>Who acts at each step</h2>
       <div class="diagrams">
-        <figure><img src="/images/digest-run.png" alt="Digest run: the model shortlists, has subagents read, picks and replies; the server begins, resolves refs, finishes and saves state." width="1400" height="560" loading="lazy" /><figcaption>A digest run. The model acts at steps 2, 3, 4 and 6.</figcaption></figure>
-        <figure><img src="/images/spotify-run.png" alt="Spotify lane run: research and picks are model steps; verification, limits, playlist writes and delivery are code." width="1520" height="560" loading="lazy" /><figcaption>A Spotify lane. Delivery is a separate job with no model.</figcaption></figure>
+        <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="A digest run. The model acts at steps 2, 3, 4 and 6." />
+        <RunDiagram kind="spotify" title="One Spotify lane run, split between the models and the server" caption="A Spotify lane. Delivery is a separate job with no model." />
       </div>
     </div>
   </section>
@@ -222,7 +223,4 @@ const rules = [
   .rules li::marker { color: var(--signal); font-weight: 700; }
 
   .diagrams { display: grid; gap: 1.5rem; }
-  .diagrams figure { margin: 0; }
-  .diagrams img { background: #fff; border-radius: var(--radius-m); border: 1px solid var(--line); }
-  figcaption { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
 </style>

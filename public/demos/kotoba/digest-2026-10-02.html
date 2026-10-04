@@ -12,7 +12,11 @@
 //     forward by (now - __DEMO__.anchor), so a snapshot always looks fresh;
 //   - __DEMO__.ops fakes a write endpoint: POSTs get 202, and the queued ops
 //     come back as results in __DEMO__.ops.document a few seconds later;
+//   - files named in __DEMO__.stub answer with that JSON instead of the
+//     network (for documents a snapshot doesn't have, like a live manifest);
 //   - service workers are not registered;
+//   - links to other sites open in a new tab (inside the portfolio's iframe
+//     most of them, GitHub included, refuse to load);
 //   - a small "invented data" marker is shown, plus a back link when the page
 //     is opened outside the portfolio's iframe.
 (() => {
@@ -94,6 +98,7 @@
       return new Response(null, { status: 204 });
     }
     const file = url.pathname.split("/").pop();
+    if (cfg.stub && Object.hasOwn(cfg.stub, file)) return json(200, cfg.stub[file]);
     if (cfg.ops && file === cfg.ops.endpoint) {
       if (method !== "POST") return json(405, { error: "POST only" });
       const op = JSON.parse(init.body || "{}");
@@ -130,6 +135,16 @@
 
   // ---- marker --------------------------------------------------------------
   const framed = window.top !== window;
+  // Covers links the page adds later too: decide at click time.
+  document.addEventListener("click", (e) => {
+    const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
+    if (!a || a.target) return; // the page chose a target itself (e.g. a named chart tab)
+    const url = new URL(a.getAttribute("href"), location.href);
+    if (url.origin === location.origin || !/^https?:$/.test(url.protocol)) return;
+    a.target = "_blank";
+    a.rel = "noopener";
+  }, true);
+
   document.addEventListener("DOMContentLoaded", () => {
     const tag = document.createElement("div");
     tag.setAttribute("role", "note");

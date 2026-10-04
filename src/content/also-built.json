@@ -1,17 +1,42 @@
 [
-  { "id": "job-ledger", "name": "job-ledger", "repo": "https://github.com/wkbaran/job-ledger",
+  {
+    "id": "job-ledger",
+    "name": "job-ledger",
+    "repo": "https://github.com/wkbaran/job-ledger",
     "blurb": "Bookkeeping for scheduled LLM jobs: runs, refs, seen sets and atomic state, so the model only judges. The shared library under the MCP servers.",
-    "tags": ["TypeScript", "LLM ops"] },
-  { "id": "etf-compare", "name": "etf-compare", "repo": "https://github.com/wkbaran/etf-compare",
+    "tags": [
+      "TypeScript",
+      "LLM ops"
+    ]
+  },
+  {
+    "id": "etf-compare",
+    "name": "etf-compare",
+    "repo": "https://github.com/wkbaran/etf-compare",
     "blurb": "Upload ETF holdings files and compare their overlap side by side.",
-    "tags": ["Markets", "Web"] },
-  { "id": "etf-explorer", "name": "etf-explorer", "repo": "https://github.com/wkbaran/etf-explorer",
-    "blurb": "Analyze the combined holdings of a collection of ETFs.",
-    "tags": ["Markets", "Data"] },
-  { "id": "cloudformation-foundation", "name": "cloudformation-foundation", "repo": "https://github.com/wkbaran/cloudformation-foundation",
+    "tags": [
+      "Markets",
+      "Web"
+    ]
+  },
+  {
+    "id": "cloudformation-foundation",
+    "name": "cloudformation-foundation",
+    "repo": "https://github.com/wkbaran/cloudformation-foundation",
     "blurb": "My personal infrastructure-as-code toolkit: reusable CloudFormation building blocks.",
-    "tags": ["AWS", "IaC"] },
-  { "id": "aws-tools", "name": "aws-tools", "repo": "https://github.com/wkbaran/aws-tools",
+    "tags": [
+      "AWS",
+      "IaC"
+    ]
+  },
+  {
+    "id": "aws-tools",
+    "name": "aws-tools",
+    "repo": "https://github.com/wkbaran/aws-tools",
     "blurb": "Shell scripts and aliases collected from years of day-to-day AWS work.",
-    "tags": ["AWS", "Shell"] }
+    "tags": [
+      "AWS",
+      "Shell"
+    ]
+  }
 ]

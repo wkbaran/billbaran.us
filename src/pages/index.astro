@@ -3,6 +3,7 @@ import { getCollection, render } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import ProjectCard from '../components/ProjectCard.astro';
 import Contact from '../components/Contact.astro';
+import RunDiagram from '../components/RunDiagram.astro';
 import { SITE } from '../site';
 
 const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
@@ -72,19 +73,19 @@ const hobbies = [
         {projects.map((p) => <ProjectCard project={p} />)}
       </div>
 
-      <a class="llm-teaser" href="/llm-workflows/">
+      <div class="llm-teaser">
         <div>
           <span class="eyebrow">LLM workflows</span>
-          <h3>Scheduled agents that are cheap and don't make mistakes</h3>
+          <h3><a href="/llm-workflows/">Scheduled agents that are cheap and don't make mistakes</a></h3>
           <p class="sub">
             Three MCP servers I wrote, for Substack, Medium and Spotify, plus the Hermes skills and cron jobs that use them. They produce a daily reading digest and a playlist twice a week.
             Moving the bookkeeping out of the prompt and into code cut the Medium digest from <strong>$3.26 to $0.27</strong> a run.
             The Substack digest and the playlist now run entirely on a local model.
           </p>
-          <span class="go">Step through a real run →</span>
+          <a class="go" href="/llm-workflows/#replay">Step through a real run →</a>
         </div>
-        <img src="/images/digest-run.png" alt="Diagram: in a digest run the model only judges, and the server handles fetching, ranking, refs, layout and state." width="1400" height="560" loading="lazy" />
-      </a>
+        <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="The model acts at steps 2, 3, 4 and 6. Everything in the server lane is code." />
+      </div>
     </div>
   </section>
 
@@ -138,11 +139,11 @@ const hobbies = [
           <span class="eyebrow">Also built</span>
           <h2>Smaller tools</h2>
         </div>
-        <a class="btn" href={SITE.github}>Everything on GitHub →</a>
+        <a class="btn" href={SITE.github} target="_blank" rel="noopener">Everything on GitHub ↗</a>
       </div>
       <div class="grid also">
         {alsoBuilt.map((r) => (
-          <a class="card also-card" href={r.data.repo}>
+          <a class="card also-card" href={r.data.repo} target="_blank" rel="noopener">
             <h3>{r.data.name}</h3>
             <p class="sub">{r.data.blurb}</p>
             <ul class="chips">{r.data.tags.map((t) => <li>{t}</li>)}</ul>
@@ -196,11 +197,12 @@ const hobbies = [
   .section-head .prose { margin: 0; max-width: 46ch; font-size: .95rem; }
 
   .llm-teaser { margin-top: 1.4rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 1.6rem; align-items: center;
-    text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.6rem; }
-  .llm-teaser:hover { border-color: var(--line-strong); }
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.6rem; }
   .llm-teaser h3 { font-size: 1.45rem; font-stretch: 85%; }
-  .llm-teaser img { border-radius: var(--radius-s); background: #fff; }
-  .llm-teaser .go { color: var(--signal); font-weight: 650; }
+  .llm-teaser h3 a { text-decoration: none; }
+  .llm-teaser h3 a:hover { text-decoration: underline; text-decoration-color: var(--signal); }
+  .llm-teaser .go { color: var(--signal); font-weight: 650; text-decoration: none; }
+  .llm-teaser .go:hover { text-decoration: underline; }
   @media (max-width: 860px) { .llm-teaser { grid-template-columns: 1fr; } }
 
   .skills { grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); }
