@@ -71,8 +71,11 @@ The project-card thumbnails are screenshots of the demos in each app's dark and 
 ```sh
 aws cloudformation deploy --region us-east-1 --stack-name billbaran-us \
   --template-file infra/site.yaml --capabilities CAPABILITY_IAM \
-  --parameter-overrides BucketName=<unique-bucket> HostedZoneId=<zone-id> CreateOidcProvider=<true|false>
+  --parameter-overrides BucketName=<unique-bucket> HostedZoneId=<zone-id> CreateOidcProvider=<true|false> \
+    GitHubSubjectPrefix="$(gh api repos/<owner>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix)"
 ```
+
+Newer GitHub repos sign Actions in with an *immutable* subject that pins the owner and repo IDs (`repo:owner@123/name@456`). The deploy role trusts exactly that prefix on `main`. Leave `GitHubSubjectPrefix` blank for a repo that still uses the classic `repo:owner/name` form.
 
 To publish from a workstation, run `npm run deploy`. It builds the site, then syncs it and invalidates CloudFront using the stack's outputs (set `STACK` if the stack isn't called `billbaran-us`).
 
