@@ -98,7 +98,7 @@ for (const f of readdirSync(reports)) {
   if (f.endsWith('-prices.json')) continue; // empty: the price fetch was refused
   if (!f.endsWith('.html')) { copy(join(reports, f), dir, f); continue; }
   const html = readFileSync(join(reports, f), 'utf8').replace(LOCAL_ZONE, 'America/New_York');
-  write(dir, f, injectShim(html, { name: REPO, project: 'spread-book', allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
+  write(dir, f, injectShim(html, { name: REPO, project: 'spread-book', theme: { key: 'optionspread.theme', toggle: '#theme-btn' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
 }
 writeSource(dir, REPO);
 console.log(`spread-book demo -> ${dir}`);

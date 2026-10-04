@@ -106,7 +106,7 @@ for (const f of readdirSync(join(work, 'web'))) {
   if (!f.endsWith('.html')) { copy(from, dir, f); continue; }
   const html = readFileSync(from, 'utf8')
     .replace(sourceLink, '<span>Demo sentence, written for this page. The real site links the news article it came from.</span>');
-  write(dir, f, injectShim(html, { name: 'kotoba', project: 'kotoba', allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
+  write(dir, f, injectShim(html, { name: 'kotoba', project: 'kotoba', theme: { key: 'kotoba-theme', toggle: '.pal-mode' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
 }
 writeSource(dir, REPO);
 console.log(`kotoba demo -> ${dir}`);

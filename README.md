@@ -39,6 +39,7 @@ npm run demos -- kotoba       # just one
 `scripts/demos/demo-shim.js` is inlined at the top of every demo page. It:
 - blocks requests to other origins (only Google Fonts is allowed);
 - fakes the write endpoint;
+- keeps the app's light/dark mode matching the portfolio page while the demo is shown in its frame;
 - opens links to other sites in a new tab (most sites, GitHub included, refuse to load inside a frame);
 - shifts timestamps so a snapshot always looks fresh;
 - shows the "invented data" marker.

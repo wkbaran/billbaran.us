@@ -58,7 +58,7 @@ write(dir, 'index.html', injectShim(html, {
   anchor: now.toISOString(),
   shift: ['dashboard.json', 'alerts.json'],
   ops: { endpoint: 'ops', document: 'dashboard.json' },
-  allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'],
+  theme: { key: 'equity-watch.theme', toggle: '#theme-btn' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'],
   storage: { 'equity-watch.opsToken': DEMO_TOKEN },
 }));
 for (const f of ['app.js', 'palette.js', 'webmcp.js']) copy(src(`web/${f}`), dir, f);

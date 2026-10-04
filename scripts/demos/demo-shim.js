@@ -10,6 +10,10 @@
 //     come back as results in __DEMO__.ops.document a few seconds later;
 //   - files named in __DEMO__.stub answer with that JSON instead of the
 //     network (for documents a snapshot doesn't have, like a live manifest);
+//   - inside the portfolio's iframe, __DEMO__.theme ({key, toggle}) keeps the
+//     app's light/dark mode matching the portfolio page: the page's mode is
+//     written to the app's own storage key before the app reads it, and later
+//     flips click the app's own toggle, so the app updates itself as usual;
 //   - service workers are not registered;
 //   - links to other sites open in a new tab (inside the portfolio's iframe
 //     most of them, GitHub included, refuse to load);
@@ -127,6 +131,29 @@
     } catch {
       /* storage blocked: the page falls back to its locked state */
     }
+  }
+
+  // ---- follow the portfolio page's theme ----------------------------------------
+  let host = null;
+  try {
+    if (window.top !== window && window.parent.location.origin === location.origin) host = window.parent.document.documentElement;
+  } catch {
+    /* framed by another origin: leave the app's theme alone */
+  }
+  if (host && cfg.theme) {
+    // The portfolio is dark unless it says light (see Base.astro).
+    const hostMode = () => (host.getAttribute("data-theme") === "light" ? "light" : "dark");
+    try {
+      localStorage.setItem(cfg.theme.key, hostMode());
+    } catch {
+      /* the app falls back to its own default */
+    }
+    const ownMode = () => (document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
+    new MutationObserver(() => {
+      if (hostMode() === ownMode()) return;
+      const toggle = document.querySelector(cfg.theme.toggle);
+      if (toggle) toggle.click();
+    }).observe(host, { attributes: true, attributeFilter: ["data-theme"] });
   }
 
   // ---- marker --------------------------------------------------------------

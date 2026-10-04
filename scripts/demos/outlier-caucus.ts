@@ -148,7 +148,7 @@ pages['index.html'] = buildHtmlReport({
 
 const dir = outDir(REPO);
 for (const [file, html] of Object.entries(pages)) {
-  write(dir, file, injectShim(html, { name: REPO, project: 'outlier-caucus', stub: { 'manifest.json': [] }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
+  write(dir, file, injectShim(html, { name: REPO, project: 'outlier-caucus', stub: { 'manifest.json': [] }, theme: { key: 'congress-theme', toggle: '#theme-btn' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
 }
 writeSource(dir, REPO);
 console.log(`outlier-caucus demo -> ${dir} (${scoredTrades.length} trades)`);
