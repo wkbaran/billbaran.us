@@ -15,6 +15,7 @@
     "check": "astro check",
     "demos": "tsx scripts/demos/build-all.ts",
     "shots": "tsx scripts/demos/screenshots.ts",
+    "deploy": "scripts/deploy.sh",
     "sanitize": "node scripts/check-sanitized.ts public src scripts infra .github dist"
   },
   "dependencies": {
