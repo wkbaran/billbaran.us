@@ -120,6 +120,13 @@ const rules = [
           </article>
         ))}
       </div>
+      <aside class="webmcp card">
+        <h3>In the browser, too: WebMCP</h3>
+        <p class="sub">
+          <a href="https://github.com/webmachinelearning/webmcp" target="_blank" rel="noopener">WebMCP</a> is a proposed standard for a web page to hand an agent in the browser its own tools. Equity Watch's dashboard registers 23 of them: reads, queued changes, and holdings tools that stay off until you opt in. Every change waits for your approval on the page. The same file serves the tools to desktop agents through an MCP server.
+        </p>
+        <a class="go" href="/projects/equity-watch/#agents">Call the tools yourself in the Equity Watch demo</a>
+      </aside>
       <p class="muted small">
         TypeScript on the official MCP SDK, with zod schemas and vitest. All three are MIT-licensed. The reader servers use each site's own web API with my session, read-only by default.
         State writes take a lock, go through a temp file and a rename, and keep a <code>.bak</code>, because Hermes runs two copies of each server at once.
@@ -202,6 +209,10 @@ const rules = [
   .notes li { margin-bottom: .5rem; }
   .notes li::marker { color: var(--signal); }
   .small { font-size: .88rem; max-width: 80ch; }
+  .webmcp { margin: 0 0 1.2rem; border-color: color-mix(in oklab, var(--signal) 45%, var(--line)); }
+  .webmcp h3 { margin-bottom: .4rem; }
+  .webmcp p { max-width: 80ch; }
+  .webmcp .go { font-weight: 650; text-decoration-color: var(--signal); }
 
   .two { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 3rem; }
   @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }

@@ -14,6 +14,12 @@
 //     app's light/dark mode matching the portfolio page: the page's mode is
 //     written to the app's own storage key before the app reads it, and later
 //     flips click the app's own toggle, so the app updates itself as usual;
+//   - __DEMO__.webmcp installs a stand-in WebMCP host where the browser has
+//     none, so the portfolio page can play the agent: it records the tools
+//     the app registers with document.modelContext.registerTool() and exposes
+//     them as window.__demoAgent (list, call, onChange). Calls go through the
+//     tool's own execute(), so the app's checks and consent dialog all apply.
+//     With a native modelContext the browser's own is left in place;
 //   - service workers are not registered;
 //   - links to other sites open in a new tab (inside the portfolio's iframe
 //     most of them, GitHub included, refuse to load);
@@ -130,6 +136,40 @@
       if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
     } catch {
       /* storage blocked: the page falls back to its locked state */
+    }
+  }
+
+  // ---- WebMCP stand-in ------------------------------------------------------------
+  if (cfg.webmcp) {
+    const native = document.modelContext || navigator.modelContext;
+    if (native) {
+      window.__demoAgent = { native: true };
+    } else {
+      const tools = new Map();
+      const listeners = new Set();
+      const changed = () => listeners.forEach((f) => { try { f(); } catch { /* a closed listener */ } });
+      const host = {
+        registerTool(tool, options = {}) {
+          tools.set(tool.name, tool);
+          // The current spec unregisters by aborting the signal passed here.
+          options.signal?.addEventListener("abort", () => {
+            if (tools.get(tool.name) === tool) { tools.delete(tool.name); changed(); }
+          });
+          changed();
+        },
+        unregisterTool(name) { if (tools.delete(name)) changed(); },
+      };
+      Object.defineProperty(document, "modelContext", { value: host, configurable: true });
+      window.__demoAgent = {
+        native: false,
+        list: () => [...tools.values()].map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+        call: (name, args) => {
+          const tool = tools.get(name);
+          if (!tool) return Promise.reject(new Error(`No tool named ${name} is registered right now.`));
+          return Promise.resolve(tool.execute(args ?? {}, {}));
+        },
+        onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
+      };
     }
   }
 

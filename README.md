@@ -39,6 +39,7 @@ npm run demos -- kotoba       # just one
 `scripts/demos/demo-shim.js` is inlined at the top of every demo page. It:
 - blocks requests to other origins (only Google Fonts is allowed);
 - fakes the write endpoint;
+- for Equity Watch, stands in for the browser's WebMCP host where there isn't one, so the project page's agent console can list and call the tools the dashboard registers (through their own `execute`, consent dialog included);
 - keeps the app's light/dark mode matching the portfolio page while the demo is shown in its frame;
 - opens links to other sites in a new tab (most sites, GitHub included, refuse to load inside a frame);
 - shifts timestamps so a snapshot always looks fresh;

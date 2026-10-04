@@ -1,6 +1,7 @@
 ---
 import { getCollection, render, type CollectionEntry } from 'astro:content';
 import Base from '../../layouts/Base.astro';
+import WebMcpConsole from '../../components/WebMcpConsole.astro';
 
 export async function getStaticPaths() {
   const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
@@ -37,9 +38,33 @@ const demoSrc = p.demo ? `/demos/${p.demo}/${p.demoPage}` : null;
             <span>Demo with invented data</span>
             <a href={demoSrc} target="_blank" rel="noopener">Open full screen ↗</a>
           </div>
-          <iframe src={demoSrc} title={`${p.title} demo`}></iframe>
+          <iframe id="demo-frame" src={demoSrc} title={`${p.title} demo`}></iframe>
         </div>
         <p class="muted demo-note">{p.demoNote} Nothing in the demo contacts a market-data, news or brokerage service.</p>
+      </div>
+    </section>
+  )}
+
+  {demoSrc && p.webmcp && (
+    <section class="agents" id="agents" aria-labelledby="agents-h">
+      <div class="wrap">
+        <h2 id="agents-h">Agents can use it too</h2>
+        <div class="agents-cols">
+          <div class="prose">
+            <p>
+              <a href="https://github.com/webmachinelearning/webmcp" target="_blank" rel="noopener">WebMCP</a> is a proposed browser standard that lets a web page hand an AI agent in the browser a set of typed tools. So far it's only in Chrome and Edge, behind a flag.
+              Equity Watch registers its own controls as tools. An agent sees what you see and can do only what the unlocked page can. Changes go through the same queue, guards and server-side checks as a click.
+            </p>
+            <p>The panel below plays the agent. It lists the tools the demo registered and calls them. Unlock or lock editing, or tick "Agents may see holdings", and the list changes.</p>
+          </div>
+          <ul class="rules">
+            <li><strong>Every change asks first.</strong> The spec doesn't settle consent yet, so the page shows its own dialog. It ignores scripted clicks, so page code can't approve its own request.</li>
+            <li><strong>Holdings stay private until you share them.</strong> A tool's output goes to whatever model the agent runs, so the holdings tools only appear after you opt in.</li>
+            <li><strong>It doesn't trust the browser.</strong> Chrome passes arguments through unchecked and doesn't tell the page when an agent cancels. So every call is checked against its schema, a question expires after two minutes, and a repeat of a pending change is refused.</li>
+            <li><strong>One set of tools, two hosts.</strong> The same file serves these tools to desktop agents through an MCP server.</li>
+          </ul>
+        </div>
+        <WebMcpConsole frame="#demo-frame" dataBase={`/demos/${p.demo}/`} />
       </div>
     </section>
   )}
@@ -82,6 +107,12 @@ const demoSrc = p.demo ? `/demos/${p.demo}/${p.demoPage}` : null;
   @media (max-width: 620px) { iframe { height: 75vh; } }
   .demo-note { font-size: var(--step--1); margin: .8rem 0 0; max-width: 80ch; }
 
+  .agents { padding: 3rem 0 1rem; }
+  .agents-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem 3rem; margin-bottom: 1.6rem; }
+  @media (max-width: 900px) { .agents-cols { grid-template-columns: 1fr; } }
+  .rules { margin: 0; padding-left: 1.1rem; display: grid; gap: .7rem; color: var(--sub); }
+  .rules li::marker { color: var(--signal); }
+  .rules strong { color: var(--ink); }
   .detail { padding: 3rem 0; }
   .cols { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 3rem; align-items: start; }
   @media (max-width: 900px) { .cols { grid-template-columns: 1fr; gap: 1rem; } }

@@ -13,6 +13,7 @@ const p = project.data;
   <div class="body">
     <h3><a href={`/projects/${project.id}/`}>{p.title}</a>{p.subtitle && <span class="jp" lang="ja"> {p.subtitle}</span>}</h3>
     <p class="sub">{p.tagline}</p>
+    {p.cardNote && <p class="note">{p.cardNote}</p>}
     <p class="stack">{p.stack.slice(0, 6).join(', ')}</p>
   </div>
 </article>
@@ -33,4 +34,5 @@ const p = project.data;
   .pcard:hover h3 a { text-decoration: underline; text-decoration-color: var(--signal); }
   .jp { font-weight: 400; color: var(--muted); font-size: .95rem; }
   p { margin: 0; }
+  .note { font-size: var(--step--1); color: var(--ink); border-left: 2px solid var(--signal); padding-left: .6rem; }
 </style>

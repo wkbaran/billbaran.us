@@ -19,6 +19,10 @@ const projects = defineCollection({
     // Page inside the demo folder to open first.
     demoPage: z.string().default('index.html'),
     demoNote: z.string().optional(),
+    // One extra line on the home-page card, for the thing worth noticing first.
+    cardNote: z.string().optional(),
+    // Show the WebMCP agent console under the demo (Equity Watch).
+    webmcp: z.boolean().default(false),
     screenshot: z.string().optional(),
   }),
 });

@@ -1,0 +1,208 @@
+---
+/**
+ * Plays the agent for Equity Watch's WebMCP tools. The demo's shim records the
+ * tools the page registers with document.modelContext (the demo-shim stand-in,
+ * where the browser has no WebMCP of its own) and exposes them on the iframe as
+ * window.__demoAgent. This lists them live and calls them, the way an agent host
+ * would, so the page's argument checks and its consent dialog both run.
+ */
+interface Props { frame: string; dataBase: string }
+const { frame, dataBase } = Astro.props;
+---
+<div class="console" data-frame={frame} data-base={dataBase}>
+  <p class="status" role="status">Waiting for the demo to register its tools…</p>
+  <div class="layout" hidden>
+    <div class="tools" role="listbox" aria-label="Tools the page registered"></div>
+    <div class="call">
+      <h3 class="tool-name"><code></code><span class="kind"></span></h3>
+      <p class="tool-desc sub"></p>
+      <label for="mcp-args">Arguments (JSON)</label>
+      <textarea id="mcp-args" spellcheck="false" rows="5"></textarea>
+      <div class="actions">
+        <button type="button" class="btn-signal run">Call this tool</button>
+        <span class="hint muted"></span>
+      </div>
+      <h4>Result</h4>
+      <pre class="result" aria-live="polite"><code>Pick a tool and call it.</code></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Holdings tools are read-only or write like the rest; this set only labels them.
+  const HOLDINGS = new Set(['list_positions', 'get_position', 'get_stories', 'add_lot', 'edit_lot', 'remove_lot', 'remove_position', 'add_stop', 'edit_stop', 'remove_stop', 'cover_position']);
+  const GROUPS = [
+    { key: 'read', label: 'Read', empty: '' },
+    { key: 'write', label: 'Change (asks you first)', empty: 'Unlock editing in the demo to register these.' },
+    { key: 'holdings', label: 'Holdings', empty: 'Tick “Agents may see holdings” in the demo’s left rail to register these.' },
+  ];
+
+  type Tool = { name: string; description: string; inputSchema: { properties?: Record<string, { type?: string }>; required?: string[] }; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } };
+  type Agent = { native: boolean; list?: () => Tool[]; call?: (n: string, a: unknown) => Promise<{ content?: { text?: string }[]; isError?: boolean }>; onChange?: (f: () => void) => () => void };
+
+  for (const root of document.querySelectorAll<HTMLElement>('.console')) {
+    const iframe = document.querySelector<HTMLIFrameElement>(root.dataset.frame!);
+    const status = root.querySelector<HTMLElement>('.status')!;
+    const layout = root.querySelector<HTMLElement>('.layout')!;
+    const list = root.querySelector<HTMLElement>('.tools')!;
+    const nameEl = root.querySelector<HTMLElement>('.tool-name code')!;
+    const kindEl = root.querySelector<HTMLElement>('.tool-name .kind')!;
+    const descEl = root.querySelector<HTMLElement>('.tool-desc')!;
+    const args = root.querySelector<HTMLTextAreaElement>('textarea')!;
+    const run = root.querySelector<HTMLButtonElement>('.run')!;
+    const hint = root.querySelector<HTMLElement>('.hint')!;
+    const result = root.querySelector<HTMLElement>('.result code')!;
+    let agent: Agent | null = null;
+    let tools: Tool[] = [];
+    let selected: string | null = null;
+    let samples: Record<string, unknown> = {};
+
+    const group = (t: Tool) => (HOLDINGS.has(t.name) ? 'holdings' : t.annotations?.readOnlyHint ? 'read' : 'write');
+
+    // Real ids from the demo's own data, so the sample arguments work as they are.
+    async function loadSamples() {
+      try {
+        const [d, a] = await Promise.all(['dashboard.json', 'alerts.json'].map((f) => fetch(root.dataset.base + f).then((r) => r.json())));
+        const alert = a.alerts?.[0];
+        const revisit = d.revisitQueue?.[0];
+        samples = {
+          get_alert: { alertId: alert?.id },
+          get_chart_url: { symbol: 'MSFT' },
+          add_alert: { symbol: 'NVDA', level: 200, direction: 'up' },
+          edit_alert: { alertId: alert?.id, level: 60 },
+          remove_alert: { alertId: alert?.id },
+          dismiss_revisit: { revisitId: revisit?.id },
+          relevel_revisit: { revisitId: revisit?.id },
+          apply_revisit: { revisitId: revisit?.id },
+        };
+      } catch {
+        samples = {};
+      }
+    }
+
+    function sampleFor(t: Tool) {
+      if (samples[t.name]) return samples[t.name];
+      const out: Record<string, unknown> = {};
+      for (const key of t.inputSchema?.required ?? []) out[key] = '';
+      return out;
+    }
+
+    function render() {
+      tools = agent?.list?.() ?? [];
+      list.replaceChildren();
+      for (const g of GROUPS) {
+        const inGroup = tools.filter((t) => group(t) === g.key);
+        const box = document.createElement('div');
+        box.className = 'group';
+        const h = document.createElement('p');
+        h.className = 'group-name';
+        h.textContent = `${g.label} (${inGroup.length})`;
+        box.append(h);
+        if (!inGroup.length && g.empty) {
+          const e = document.createElement('p');
+          e.className = 'empty muted';
+          e.textContent = g.empty;
+          box.append(e);
+        }
+        for (const t of inGroup) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'option');
+          b.setAttribute('aria-selected', String(t.name === selected));
+          b.textContent = t.name;
+          b.addEventListener('click', () => select(t.name));
+          box.append(b);
+        }
+        list.append(box);
+      }
+      if (!selected || !tools.some((t) => t.name === selected)) select(tools[0]?.name ?? null);
+      status.textContent = `The demo registered ${tools.length} tools. This panel calls them the way an agent in your browser would.`;
+    }
+
+    function select(name: string | null) {
+      selected = name;
+      list.querySelectorAll('[role="option"]').forEach((b) => b.setAttribute('aria-selected', String(b.textContent === name)));
+      const t = tools.find((x) => x.name === name);
+      if (!t) return;
+      nameEl.textContent = t.name;
+      const g = group(t);
+      kindEl.textContent = g === 'read' ? 'read-only' : t.annotations?.readOnlyHint ? 'read-only, holdings' : t.annotations?.destructiveHint ? 'change, removes something' : 'change';
+      descEl.textContent = t.description;
+      args.value = JSON.stringify(sampleFor(t), null, 2);
+      hint.textContent = t.annotations?.readOnlyHint ? '' : 'The demo will ask you to approve it.';
+    }
+
+    run.addEventListener('click', async () => {
+      const t = tools.find((x) => x.name === selected);
+      if (!t || !agent?.call) return;
+      let parsed: unknown;
+      try {
+        parsed = args.value.trim() ? JSON.parse(args.value) : {};
+      } catch (err) {
+        result.textContent = `Those arguments aren't valid JSON: ${(err as Error).message}`;
+        return;
+      }
+      if (!t.annotations?.readOnlyHint) {
+        iframe?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+        result.textContent = 'Waiting for you to approve or decline it in the demo…';
+      } else {
+        result.textContent = 'Calling…';
+      }
+      run.disabled = true;
+      try {
+        const res = await agent.call(t.name, parsed);
+        const text = (res?.content ?? []).map((c) => c.text ?? '').join('\n');
+        result.textContent = (res?.isError ? 'The tool refused: ' : '') + (text || '(no output)');
+      } catch (err) {
+        result.textContent = `The call failed: ${(err as Error).message}`;
+      } finally {
+        run.disabled = false;
+      }
+    });
+
+    let unsubscribe: (() => void) | undefined;
+    async function attach() {
+      unsubscribe?.();
+      const a = (iframe?.contentWindow as (Window & { __demoAgent?: Agent }) | null)?.__demoAgent;
+      if (!a) return;
+      agent = a;
+      if (a.native) {
+        status.textContent = 'Your browser has WebMCP turned on, so the demo registered its tools with it. Use your browser’s agent (or DevTools → Application → WebMCP) to call them.';
+        return;
+      }
+      await loadSamples();
+      layout.hidden = false;
+      unsubscribe = a.onChange?.(() => render());
+      render();
+    }
+    iframe?.addEventListener('load', attach);
+    attach();
+  }
+</script>
+
+<style>
+  .console { border: 1px solid var(--line-strong); border-radius: var(--radius-m); background: var(--surface); padding: 1.2rem; }
+  .status { margin: 0 0 1rem; color: var(--sub); font-size: var(--step--1); }
+  .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1.4rem; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  .tools { display: grid; gap: 1rem; align-content: start; }
+  .group { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .group-name { flex-basis: 100%; margin: 0 0 .1rem; font-size: var(--step--1); font-weight: 650; }
+  .empty { flex-basis: 100%; margin: 0; font-size: var(--step--1); }
+  .tools button { justify-content: flex-start; font-family: ui-monospace, Menlo, monospace; font-size: .8rem; padding: .35rem .6rem; background: var(--ground); }
+  .tools button[aria-selected="true"] { border-color: var(--signal); background: var(--wash); }
+  .call { min-width: 0; }
+  .tool-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; margin: 0 0 .4rem; }
+  .tool-name code { background: none; padding: 0; font-size: 1.05rem; }
+  .kind { font-size: var(--step--1); font-weight: 400; color: var(--muted); }
+  .tool-desc { font-size: var(--step--1); margin-bottom: 1rem; max-width: 75ch; }
+  label { display: block; font-size: var(--step--1); font-weight: 600; margin-bottom: .3rem; }
+  textarea { width: 100%; font: .82rem/1.5 ui-monospace, Menlo, monospace; color: var(--ink); background: var(--ground);
+    border: 1px solid var(--line); border-radius: var(--radius-s); padding: .6rem .7rem; resize: vertical; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; margin: .7rem 0 0; }
+  .actions .hint { font-size: var(--step--1); }
+  h4 { font-size: var(--step--1); font-weight: 600; color: var(--muted); margin: 1.2rem 0 .4rem; }
+  .result { margin: 0; padding: .8rem 1rem; background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-s);
+    max-height: 22rem; overflow: auto; font-size: .8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .result code { background: none; padding: 0; font-size: inherit; }
+</style>

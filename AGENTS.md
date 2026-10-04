@@ -15,4 +15,5 @@
 - Commit as `Bill Baran <2525633+wkbaran@users.noreply.github.com>`, with no AI attribution trailers.
 - The run diagrams are inline SVG from `src/lib/run-diagrams.ts`, ported from `hermes/images/make-diagrams.py`. They're coloured with CSS tokens so they follow the theme and palette. Change the words there, not in an image.
 - Each demo generator passes `theme: { key, toggle }`: the app's own localStorage key for its mode and a selector for its own toggle button. The shim uses the toggle so the app updates its labels and charts itself. If an app renames either one, update the generator.
+- The Equity Watch agent console (`src/components/WebMcpConsole.astro`) only calls tools through `window.__demoAgent` in the demo iframe, which the shim sets up when `webmcp: true`. Never call the app's internals directly: going through the registered tool is the point, because that's what a real agent does.
 - Experience entries with `draft: true` are placeholders waiting on a career interview. In dev they show a dashed outline.
