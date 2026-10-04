@@ -76,7 +76,7 @@ aws cloudformation deploy --region us-east-1 --stack-name billbaran-us \
 
 To publish from a workstation, run `npm run deploy`. It builds the site, then syncs it and invalidates CloudFront using the stack's outputs (set `STACK` if the stack isn't called `billbaran-us`).
 
-Then set the stack outputs as repo **variables** (not secrets; none of them grant access by themselves): `AWS_DEPLOY_ROLE_ARN`, `SITE_BUCKET` and `SITE_DISTRIBUTION_ID`. Every push to `main` deploys via `.github/workflows/deploy.yml`.
+Then set the stack outputs as repo **secrets**: `AWS_DEPLOY_ROLE_ARN`, `SITE_BUCKET` and `SITE_DISTRIBUTION_ID`. None of them grants access on its own. They're secrets so GitHub masks them in the public Actions logs, which keeps the account ID and bucket name out of view. Every push to `main` deploys via `.github/workflows/deploy.yml`.
 
 Mail for the domain is forwarded by [ImprovMX](https://improvmx.com). Its MX and SPF records are set in Route 53 by hand, outside this stack.
 
