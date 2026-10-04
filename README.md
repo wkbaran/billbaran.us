@@ -45,6 +45,8 @@ npm run demos -- kotoba       # just one
 
 Each demo folder has a `SOURCE.json` recording the app commit it was built from.
 
+The project-card thumbnails are screenshots of the demos in each app's dark and light theme. The card shows whichever matches the page. To recapture them, serve a build (`npm run build && npm run preview`), then run `npm run shots` (set `SHOTS_BASE` if it isn't on `localhost:4321`).
+
 ## Nothing personal
 
 `scripts/check-sanitized.ts` runs before and after every build and in CI. It fails on:

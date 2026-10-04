@@ -6,7 +6,9 @@ const p = project.data;
 ---
 <article class="pcard">
   <a class="shot" href={`/projects/${project.id}/`} tabindex="-1" aria-hidden="true">
-    <img src={`/images/shots/${project.id}.png`} alt="" width="1280" height="800" loading="lazy" decoding="async" />
+    {/* Both themes are captured by scripts/demos/screenshots.ts; CSS shows the one matching the page. */}
+    <img class="dark" src={`/images/shots/${project.id}-dark.png`} alt="" width="1280" height="800" loading="lazy" decoding="async" />
+    <img class="light" src={`/images/shots/${project.id}-light.png`} alt="" width="1280" height="800" loading="lazy" decoding="async" />
     {p.demo && <span class="tag">Live demo</span>}
   </a>
   <div class="body">
@@ -21,6 +23,9 @@ const p = project.data;
   @media (prefers-reduced-motion: reduce) { .pcard, .pcard:hover { transition: none; transform: none; } }
   .shot { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--raised); }
   .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+  .shot .light { display: none; }
+  :global([data-theme="light"]) .shot .dark { display: none; }
+  :global([data-theme="light"]) .shot .light { display: block; }
   .tag { position: absolute; top: .7rem; left: .7rem; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--signal); color: var(--on-signal); padding: .2rem .55rem; border-radius: 999px; }
   .body { padding: 1.1rem 1.2rem 1.3rem; display: grid; gap: .6rem; }
   h3 { margin: 0; font-size: 1.25rem; }

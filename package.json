@@ -14,6 +14,7 @@
     "preview": "astro preview",
     "check": "astro check",
     "demos": "tsx scripts/demos/build-all.ts",
+    "shots": "tsx scripts/demos/screenshots.ts",
     "sanitize": "node scripts/check-sanitized.ts public src scripts infra .github dist"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@types/node": "^26.6.4",
+    "playwright": "^1.59.1",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   },
