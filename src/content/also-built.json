@@ -28,15 +28,5 @@
       "AWS",
       "IaC"
     ]
-  },
-  {
-    "id": "aws-tools",
-    "name": "aws-tools",
-    "repo": "https://github.com/wkbaran/aws-tools",
-    "blurb": "Shell scripts and aliases collected from years of day-to-day AWS work.",
-    "tags": [
-      "AWS",
-      "Shell"
-    ]
   }
 ]
