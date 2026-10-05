@@ -11,6 +11,6 @@ export const SITE = {
   linkedin: 'https://www.linkedin.com/in/billbaran',
   // Assembled in the browser on click (see Contact.astro), so it isn't in the HTML as one string.
   email: { user: 'hello', domain: 'billbaran.us' },
-  // Matches the three-colour palette the apps ship with ("Petrol and sodium").
-  palette: '#0e2a31,#ece4d0,#f3a83b',
+  // "Carbon and signal red": a near-neutral grey, so each app's demo can carry its own colour beside it.
+  palette: '#1a1b1d,#ecebe6,#ff5a4e',
 };

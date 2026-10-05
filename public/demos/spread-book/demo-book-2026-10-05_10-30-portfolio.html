@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<html lang="en" data-theme="dark" data-palette="#2e1322,#f2e5da,#8cbfe0">
 <head>
 <script>window.__DEMO__={"name":"spread-book","project":"spread-book","theme":{"key":"optionspread.theme","toggle":"#theme-btn"},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
 // Demo shim, inlined as the first script of every page under /demos/.
@@ -18,6 +18,12 @@
 //     app's light/dark mode matching the portfolio page: the page's mode is
 //     written to the app's own storage key before the app reads it, and later
 //     flips click the app's own toggle, so the app updates itself as usual;
+//   - __DEMO__.webmcp installs a stand-in WebMCP host where the browser has
+//     none, so the portfolio page can play the agent: it records the tools
+//     the app registers with document.modelContext.registerTool() and exposes
+//     them as window.__demoAgent (list, call, onChange). Calls go through the
+//     tool's own execute(), so the app's checks and consent dialog all apply.
+//     With a native modelContext each registration is passed on to it too;
 //   - service workers are not registered;
 //   - links to other sites open in a new tab (inside the portfolio's iframe
 //     most of them, GitHub included, refuse to load);
@@ -135,6 +141,48 @@
     } catch {
       /* storage blocked: the page falls back to its locked state */
     }
+  }
+
+  // ---- WebMCP stand-in ------------------------------------------------------------
+  // Records every tool the app registers, for the portfolio's agent console.
+  // Where the browser has WebMCP of its own, each registration is passed on to
+  // it as well, so a real agent and the console see the same tools.
+  if (cfg.webmcp) {
+    const native = document.modelContext || navigator.modelContext || null;
+    const nativeOk = native && typeof native.registerTool === "function";
+    const tools = new Map();
+    const listeners = new Set();
+    const changed = () => listeners.forEach((f) => { try { f(); } catch { /* a closed listener */ } });
+    const host = {
+      registerTool(tool, options = {}) {
+        tools.set(tool.name, tool);
+        // The current spec unregisters by aborting the signal passed here.
+        options.signal?.addEventListener("abort", () => {
+          if (tools.get(tool.name) === tool) { tools.delete(tool.name); changed(); }
+        });
+        changed();
+        return nativeOk ? native.registerTool(tool, options) : undefined;
+      },
+      unregisterTool(name) {
+        if (tools.delete(name)) changed();
+        if (nativeOk && typeof native.unregisterTool === "function") return native.unregisterTool(name);
+      },
+    };
+    try {
+      Object.defineProperty(document, "modelContext", { value: host, configurable: true });
+    } catch {
+      /* can't shadow it here: the console stays empty, real agents still work */
+    }
+    window.__demoAgent = {
+      native: Boolean(nativeOk),
+      list: () => [...tools.values()].map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+      call: (name, args) => {
+        const tool = tools.get(name);
+        if (!tool) return Promise.reject(new Error(`No tool named ${name} is registered right now.`));
+        return Promise.resolve(tool.execute(args ?? {}, {}));
+      },
+      onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
+    };
   }
 
   // ---- follow the portfolio page's theme ----------------------------------------
@@ -638,7 +686,7 @@ dl.kv .hot { color: var(--signal); font-weight: 600; }
 
 </style>
 </head>
-<body data-base="demo-book-2026-10-04_10-30">
+<body data-base="demo-book-2026-10-05_10-30">
 <header class="top">
   <h1 class="brand"><a href="index.html">Spread book</a></h1>
   <label class="snap">Snapshot <select id="snapshot"></select></label>
@@ -716,7 +764,7 @@ dl.kv .hot { color: var(--signal); font-weight: 600; }
   </section>
 </main>
 
-<script type="application/json" id="book-data">{"generatedAt":"2026-10-04T16:30:00.000Z","source":"demo-book-2026-10-04_10-30.csv","positions":[{"name":"SPY Oct 16th 520/530 Bull Put Spread","underlying":"SPY","expiration":"2026-10-16","type":"Bull Put","chance":0.8284999999999999,"credit":215.91,"maxProfit":215.91,"maxLoss":784.09,"ev":44.40999999999991,"returnPct":58,"theta":13.588957313,"vega":-1.256365715,"gamma":-0.023678484,"delta":8.089254856,"iv":19.41,"tgRatio":573.8947355328999,"tvRatio":10.81608416304165},{"name":"SPY Nov 20th 510/520 Bull Put Spread","underlying":"SPY","expiration":"2026-11-20","type":"Bull Put","chance":0.7368000000000001,"credit":187.08,"maxProfit":187.08,"maxLoss":812.92,"ev":-76.11999999999986,"returnPct":18,"theta":1.464927209,"vega":-2.994360991,"gamma":-0.001771931,"delta":8.468094468,"iv":27.89,"tgRatio":826.7405497166651,"tvRatio":0.4892286579350512},{"name":"QQQ Oct 30th 460/470 Bull Put Spread","underlying":"QQQ","expiration":"2026-10-30","type":"Bull Put","chance":0.7338,"credit":287.08,"maxProfit":287.08,"maxLoss":712.92,"ev":20.879999999999995,"returnPct":31,"theta":7.230791324,"vega":-0.790696094,"gamma":-0.004147776,"delta":7.015418086,"iv":34.79,"tgRatio":1743.2935925180145,"tvRatio":9.144842599918041},{"name":"QQQ Dec 18th 520/530 Bear Call Spread","underlying":"QQQ","expiration":"2026-12-18","type":"Bear Call","chance":0.6901,"credit":220.68,"maxProfit":220.68,"maxLoss":779.32,"ev":-89.21999999999997,"returnPct":-12,"theta":1.730272347,"vega":-2.38584914,"gamma":-0.002362221,"delta":-7.531301498,"iv":26.94,"tgRatio":732.4769134640663,"tvRatio":0.7252228642587184},{"name":"IWM Oct 16th 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-10-16","type":"Bull Put","chance":0.5997,"credit":114.91,"maxProfit":114.91,"maxLoss":385.09,"ev":-85.24,"returnPct":-64,"theta":4.018562804,"vega":-1.000096393,"gamma":-0.054350612,"delta":15.448693633,"iv":16.41,"tgRatio":73.93776548459105,"tvRatio":4.018175480010956},{"name":"IWM Nov 20th 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-11-20","type":"Bull Put","chance":0.7509,"credit":121.5,"maxProfit":121.5,"maxLoss":378.5,"ev":-3.049999999999983,"returnPct":9,"theta":1.195903895,"vega":-1.227996249,"gamma":-0.004246904,"delta":7.398311347,"iv":31.29,"tgRatio":281.5942849190846,"tvRatio":0.9738660814101558},{"name":"AAPL Oct 30th 205/210 Bull Put Spread","underlying":"AAPL","expiration":"2026-10-30","type":"Bull Put","chance":0.8161,"credit":104.92,"maxProfit":104.92,"maxLoss":395.08,"ev":12.970000000000027,"returnPct":44,"theta":2.042823143,"vega":-2.222814325,"gamma":-0.00995902,"delta":3.621412277,"iv":35.75,"tgRatio":205.12290797688928,"tvRatio":0.9190255434402962},{"name":"MSFT Nov 20th 370/380 Bull Put Spread","underlying":"MSFT","expiration":"2026-11-20","type":"Bull Put","chance":0.7334,"credit":231.85,"maxProfit":231.85,"maxLoss":768.15,"ev":-34.74999999999994,"returnPct":22,"theta":2.659585359,"vega":-1.860556688,"gamma":-0.00295711,"delta":7.90440917,"iv":33.24,"tgRatio":899.38668463466,"tvRatio":1.42945677288603},{"name":"NVDA Oct 30th 195/200 Bear Call Spread","underlying":"NVDA","expiration":"2026-10-30","type":"Bear Call","chance":0.7055,"credit":100.45,"maxProfit":100.45,"maxLoss":399.55,"ev":-46.8,"returnPct":-38,"theta":1.084741452,"vega":-1.729174644,"gamma":-0.012617196,"delta":-16.331489539,"iv":41.73,"tgRatio":85.97325840067793,"tvRatio":0.627317463718257},{"name":"AMZN Dec 18th 170/175 Bull Put Spread","underlying":"AMZN","expiration":"2026-12-18","type":"Bull Put","chance":0.7786,"credit":124.56,"maxProfit":124.56,"maxLoss":375.44,"ev":13.859999999999985,"returnPct":6,"theta":1.117872415,"vega":-4.931141734,"gamma":-0.003731615,"delta":3.797017097,"iv":28.18,"tgRatio":299.56799267877307,"tvRatio":0.22669646814090133},{"name":"XLE Nov 20th 100/105 Bear Call Spread","underlying":"XLE","expiration":"2026-11-20","type":"Bear Call","chance":0.7608,"credit":136.73,"maxProfit":136.73,"maxLoss":363.27,"ev":17.13000000000001,"returnPct":27,"theta":1.990125778,"vega":-2.728615477,"gamma":-0.003840731,"delta":-8.220535398,"iv":38.48,"tgRatio":518.163281417001,"tvRatio":0.7293536941262464},{"name":"GLD Oct 30th 230/235 Bull Put Spread","underlying":"GLD","expiration":"2026-10-30","type":"Bull Put","chance":0.7281,"credit":104.75,"maxProfit":104.75,"maxLoss":395.25,"ev":-31.200000000000017,"returnPct":15,"theta":1.535782029,"vega":-2.181914411,"gamma":-0.004026704,"delta":7.708174706,"iv":30.83,"tgRatio":381.3992856192062,"tvRatio":0.7038690524511136},{"name":"TLT Oct 16th 100/105 Bear Call Spread","underlying":"TLT","expiration":"2026-10-16","type":"Bear Call","chance":0.9024,"credit":145.04,"maxProfit":145.04,"maxLoss":354.96,"ev":96.24,"returnPct":35,"theta":5.719771503,"vega":-0.658943694,"gamma":-0.023923145,"delta":-7.763478249,"iv":37.65,"tgRatio":239.08944676797302,"tvRatio":8.680212824071733},{"name":"JPM Dec 18th 195/200 Bull Put Spread","underlying":"JPM","expiration":"2026-12-18","type":"Bull Put","chance":0.7824,"credit":106.54,"maxProfit":106.54,"maxLoss":393.46,"ev":-2.259999999999991,"returnPct":3,"theta":0.74184199,"vega":-4.770918557,"gamma":-0.003062565,"delta":5.146564007,"iv":18.56,"tgRatio":242.22897799720167,"tvRatio":0.15549248664317536},{"name":"META Nov 20th 530/540 Bull Put Spread","underlying":"META","expiration":"2026-11-20","type":"Bull Put","chance":0.7770999999999999,"credit":272.02,"maxProfit":272.02,"maxLoss":727.98,"ev":49.11999999999989,"returnPct":-21,"theta":2.173626962,"vega":-2.405731161,"gamma":-0.007136827,"delta":5.035140395,"iv":23.1,"tgRatio":304.56489445519696,"tvRatio":0.9035203090176045},{"name":"COST Oct 30th 850/860 Bull Put Spread","underlying":"COST","expiration":"2026-10-30","type":"Bull Put","chance":0.7328,"credit":206.27,"maxProfit":206.27,"maxLoss":793.73,"ev":-60.92999999999998,"returnPct":40,"theta":5.079917959,"vega":-1.999077018,"gamma":-0.011567964,"delta":2.089240193,"iv":20.17,"tgRatio":439.1367365078246,"tvRatio":2.5411316889042443}]}</script>
+<script type="application/json" id="book-data">{"generatedAt":"2026-10-05T16:30:00.000Z","source":"demo-book-2026-10-05_10-30.csv","positions":[{"name":"SPY Oct 23rd 520/530 Bull Put Spread","underlying":"SPY","expiration":"2026-10-23","type":"Bull Put","chance":0.8284999999999999,"credit":215.91,"maxProfit":215.91,"maxLoss":784.09,"ev":44.40999999999991,"returnPct":58,"theta":8.679498632,"vega":-1.572033599,"gamma":-0.015123851,"delta":8.089254856,"iv":19.41,"tgRatio":573.8947462521285,"tvRatio":5.521191555651986},{"name":"SPY Nov 27th 510/520 Bull Put Spread","underlying":"SPY","expiration":"2026-11-27","type":"Bull Put","chance":0.7368000000000001,"credit":187.08,"maxProfit":187.08,"maxLoss":812.92,"ev":-76.11999999999986,"returnPct":18,"theta":1.289852918,"vega":-3.191112271,"gamma":-0.001560166,"delta":8.468094468,"iv":27.89,"tgRatio":826.7408198871146,"tvRatio":0.404201672790346},{"name":"QQQ Nov 6th 460/470 Bull Put Spread","underlying":"QQQ","expiration":"2026-11-06","type":"Bull Put","chance":0.7338,"credit":287.08,"maxProfit":287.08,"maxLoss":712.92,"ev":20.879999999999995,"returnPct":31,"theta":5.786866038,"vega":-0.883854532,"gamma":-0.003319502,"delta":7.015418086,"iv":34.79,"tgRatio":1743.2934331716021,"tvRatio":6.5473059519255825},{"name":"QQQ Dec 25th 520/530 Bear Call Spread","underlying":"QQQ","expiration":"2026-12-25","type":"Bear Call","chance":0.6901,"credit":220.68,"maxProfit":220.68,"maxLoss":779.32,"ev":-89.21999999999997,"returnPct":-12,"theta":1.595590386,"vega":-2.484502896,"gamma":-0.002178349,"delta":-7.531301498,"iv":26.94,"tgRatio":732.4769290871205,"tvRatio":0.642217156827979},{"name":"IWM Oct 23rd 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-10-23","type":"Bull Put","chance":0.5997,"credit":114.91,"maxProfit":114.91,"maxLoss":385.09,"ev":-85.24,"returnPct":-64,"theta":2.566724551,"vega":-1.251375387,"gamma":-0.034714662,"delta":15.448693633,"iv":16.41,"tgRatio":73.93776586388772,"tvRatio":2.0511227707245934},{"name":"IWM Nov 27th 195/200 Bull Put Spread","underlying":"IWM","expiration":"2026-11-27","type":"Bull Put","chance":0.7509,"credit":121.5,"maxProfit":121.5,"maxLoss":378.5,"ev":-3.049999999999983,"returnPct":9,"theta":1.052980734,"vega":-1.308684527,"gamma":-0.003739354,"delta":7.398311347,"iv":31.29,"tgRatio":281.5942898158345,"tvRatio":0.8046100586318004},{"name":"AAPL Nov 6th 205/210 Bull Put Spread","underlying":"AAPL","expiration":"2026-11-06","type":"Bull Put","chance":0.8161,"credit":104.92,"maxProfit":104.92,"maxLoss":395.08,"ev":12.970000000000027,"returnPct":44,"theta":1.63488937,"vega":-2.484702441,"gamma":-0.007970291,"delta":3.621412277,"iv":35.75,"tgRatio":205.12292085696748,"tvRatio":0.6579819551117027},{"name":"MSFT Nov 27th 370/380 Bull Put Spread","underlying":"MSFT","expiration":"2026-11-27","type":"Bull Put","chance":0.7334,"credit":231.85,"maxProfit":231.85,"maxLoss":768.15,"ev":-34.74999999999994,"returnPct":22,"theta":2.341736786,"vega":-1.982808785,"gamma":-0.002603704,"delta":7.90440917,"iv":33.24,"tgRatio":899.3867144652387,"tvRatio":1.1810199771734418},{"name":"NVDA Nov 6th 195/200 Bear Call Spread","underlying":"NVDA","expiration":"2026-11-06","type":"Bear Call","chance":0.7055,"credit":100.45,"maxProfit":100.45,"maxLoss":399.55,"ev":-46.8,"returnPct":-38,"theta":0.868128147,"vega":-1.932902992,"gamma":-0.010097653,"delta":-16.331489539,"iv":41.73,"tgRatio":85.97326002388871,"tvRatio":0.4491317725685428},{"name":"AMZN Dec 25th 170/175 Bull Put Spread","underlying":"AMZN","expiration":"2026-12-25","type":"Bull Put","chance":0.7786,"credit":124.56,"maxProfit":124.56,"maxLoss":375.44,"ev":13.859999999999985,"returnPct":6,"theta":1.030858802,"vega":-5.135042159,"gamma":-0.003441151,"delta":3.797017097,"iv":28.18,"tgRatio":299.5680230248542,"tvRatio":0.2007498225098798},{"name":"XLE Nov 27th 100/105 Bear Call Spread","underlying":"XLE","expiration":"2026-11-27","type":"Bear Call","chance":0.7608,"credit":136.73,"maxProfit":136.73,"maxLoss":363.27,"ev":17.13000000000001,"returnPct":27,"theta":1.752284704,"vega":-2.907905345,"gamma":-0.003381723,"delta":-8.220535398,"iv":38.48,"tgRatio":518.1632865849746,"tvRatio":0.6025934465208667},{"name":"GLD Nov 6th 230/235 Bull Put Spread","underlying":"GLD","expiration":"2026-11-06","type":"Bull Put","chance":0.7281,"credit":104.75,"maxProfit":104.75,"maxLoss":395.25,"ev":-31.200000000000017,"returnPct":15,"theta":1.229099896,"vega":-2.438983771,"gamma":-0.003222607,"delta":7.708174706,"iv":30.83,"tgRatio":381.39925097909855,"tvRatio":0.5039393499105},{"name":"TLT Oct 23rd 100/105 Bear Call Spread","underlying":"TLT","expiration":"2026-10-23","type":"Bear Call","chance":0.9024,"credit":145.04,"maxProfit":145.04,"maxLoss":354.96,"ev":96.24,"returnPct":35,"theta":3.653315541,"vega":-0.824506443,"gamma":-0.01528012,"delta":-7.763478249,"iv":37.65,"tgRatio":239.0894535514119,"tvRatio":4.430912058985572},{"name":"JPM Dec 25th 195/200 Bull Put Spread","underlying":"JPM","expiration":"2026-12-25","type":"Bull Put","chance":0.7824,"credit":106.54,"maxProfit":106.54,"maxLoss":393.46,"ev":-2.259999999999991,"returnPct":3,"theta":0.684098055,"vega":-4.968193828,"gamma":-0.00282418,"delta":5.146564007,"iv":18.56,"tgRatio":242.22891423351203,"tvRatio":0.13769552450722136},{"name":"META Nov 27th 530/540 Bull Put Spread","underlying":"META","expiration":"2026-11-27","type":"Bull Put","chance":0.7770999999999999,"credit":272.02,"maxProfit":272.02,"maxLoss":727.98,"ev":49.11999999999989,"returnPct":-21,"theta":1.913855556,"vega":-2.563805183,"gamma":-0.006283901,"delta":5.035140395,"iv":23.1,"tgRatio":304.5648803187701,"tvRatio":0.7464902437557791},{"name":"COST Nov 6th 850/860 Bull Put Spread","underlying":"COST","expiration":"2026-11-06","type":"Bull Put","chance":0.7328,"credit":206.27,"maxProfit":206.27,"maxLoss":793.73,"ev":-60.92999999999998,"returnPct":40,"theta":4.065503123,"vega":-2.234604794,"gamma":-0.009257944,"delta":2.089240193,"iv":20.17,"tgRatio":439.13671577620255,"tvRatio":1.8193387635773595}]}</script>
 <script>/* Spread book — exit rules and the numbers derived from each spread.
  *
  * Shared by report.js in the browser (portfolio.js inlines this file ahead of

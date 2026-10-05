@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-palette="#0e2a31,#ece4d0,#f3a83b">
+<html lang="en" data-theme="dark" data-palette="#2e1322,#f2e5da,#8cbfe0">
 <head>
 <script>window.__DEMO__={"name":"spread-book","project":"spread-book","theme":{"key":"optionspread.theme","toggle":"#theme-btn"},"allowHosts":["fonts.googleapis.com","fonts.gstatic.com"]};
 // Demo shim, inlined as the first script of every page under /demos/.
@@ -18,6 +18,12 @@
 //     app's light/dark mode matching the portfolio page: the page's mode is
 //     written to the app's own storage key before the app reads it, and later
 //     flips click the app's own toggle, so the app updates itself as usual;
+//   - __DEMO__.webmcp installs a stand-in WebMCP host where the browser has
+//     none, so the portfolio page can play the agent: it records the tools
+//     the app registers with document.modelContext.registerTool() and exposes
+//     them as window.__demoAgent (list, call, onChange). Calls go through the
+//     tool's own execute(), so the app's checks and consent dialog all apply.
+//     With a native modelContext each registration is passed on to it too;
 //   - service workers are not registered;
 //   - links to other sites open in a new tab (inside the portfolio's iframe
 //     most of them, GitHub included, refuse to load);
@@ -135,6 +141,48 @@
     } catch {
       /* storage blocked: the page falls back to its locked state */
     }
+  }
+
+  // ---- WebMCP stand-in ------------------------------------------------------------
+  // Records every tool the app registers, for the portfolio's agent console.
+  // Where the browser has WebMCP of its own, each registration is passed on to
+  // it as well, so a real agent and the console see the same tools.
+  if (cfg.webmcp) {
+    const native = document.modelContext || navigator.modelContext || null;
+    const nativeOk = native && typeof native.registerTool === "function";
+    const tools = new Map();
+    const listeners = new Set();
+    const changed = () => listeners.forEach((f) => { try { f(); } catch { /* a closed listener */ } });
+    const host = {
+      registerTool(tool, options = {}) {
+        tools.set(tool.name, tool);
+        // The current spec unregisters by aborting the signal passed here.
+        options.signal?.addEventListener("abort", () => {
+          if (tools.get(tool.name) === tool) { tools.delete(tool.name); changed(); }
+        });
+        changed();
+        return nativeOk ? native.registerTool(tool, options) : undefined;
+      },
+      unregisterTool(name) {
+        if (tools.delete(name)) changed();
+        if (nativeOk && typeof native.unregisterTool === "function") return native.unregisterTool(name);
+      },
+    };
+    try {
+      Object.defineProperty(document, "modelContext", { value: host, configurable: true });
+    } catch {
+      /* can't shadow it here: the console stays empty, real agents still work */
+    }
+    window.__demoAgent = {
+      native: Boolean(nativeOk),
+      list: () => [...tools.values()].map(({ name, description, inputSchema, annotations }) => ({ name, description, inputSchema, annotations })),
+      call: (name, args) => {
+        const tool = tools.get(name);
+        if (!tool) return Promise.reject(new Error(`No tool named ${name} is registered right now.`));
+        return Promise.resolve(tool.execute(args ?? {}, {}));
+      },
+      onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
+    };
   }
 
   // ---- follow the portfolio page's theme ----------------------------------------
@@ -463,9 +511,9 @@ button:hover { border-color: var(--line-strong); }
 <main class="wrap">
   <h2 class="section-title">Report archive</h2>
   <details open>
-    <summary>Week of Sep 28, 2026 <span class="muted">1 report</span></summary>
+    <summary>Week of Oct 5, 2026 <span class="muted">1 report</span></summary>
     <ul>
-        <li><span>Sun, Oct 4, 10:30 AM MDT</span><a href="demo-book-2026-10-04_10-30-portfolio.html">Spread book</a></li>
+        <li><span>Mon, Oct 5, 10:30 AM MDT</span><a href="demo-book-2026-10-05_10-30-portfolio.html">Spread book</a></li>
     </ul>
   </details>
 </main>

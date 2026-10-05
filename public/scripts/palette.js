@@ -15,12 +15,15 @@
   const root = document.documentElement;
 
   const PRESETS = [
+    { name: "Carbon and signal red", colors: ["#1a1b1d", "#ecebe6", "#ff5a4e"] },
+    { name: "Stone and sodium", colors: ["#2a2825", "#ece4d0", "#f3a83b"] },
     { name: "Petrol and sodium", colors: ["#0e2a31", "#ece4d0", "#f3a83b"] },
     { name: "Walnut and cyan", colors: ["#241a12", "#f2e8d3", "#57c7f5"] },
     { name: "Oxblood and brass", colors: ["#2b1016", "#f1e2de", "#e6c160"] },
     { name: "Moss and coral", colors: ["#15201a", "#e2ecdc", "#ff8a66"] },
     { name: "Ink and violet", colors: ["#15162b", "#e6e4f5", "#b69bff"] },
-    { name: "Carbon and signal red", colors: ["#1a1b1d", "#ecebe6", "#ff5a4e"] },
+    { name: "Navy and straw", colors: ["#1b2742", "#e4e8f0", "#d3d98e"] },
+    { name: "Claret and sky", colors: ["#2e1322", "#f2e5da", "#8cbfe0"] },
   ];
 
   const pageDefault = (root.dataset.palette ?? "").split(",").filter(Boolean);

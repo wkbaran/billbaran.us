@@ -6,9 +6,11 @@
  * Run with tsx: the app's sources import "./x.js" for x.ts.
  */
 import { readFileSync } from 'node:fs';
-import { copy, injectShim, outDir, repoPath, write, writeSource } from './common.ts';
+import { copy, injectShim, outDir, repoPath, setPalette, write, writeSource } from './common.ts';
 
 const REPO = 'equity-watch';
+/** Navy and straw: a night-watch blue with a highlighter for alerts, set apart from the site's stone grey. */
+const PALETTE: [string, string, string] = ['#1b2742', '#e4e8f0', '#d3d98e'];
 const src = (p: string) => repoPath(REPO, p);
 
 const { buildDashboard } = await import(src('src/dashboard.ts'));
@@ -52,7 +54,7 @@ write(dir, 'alerts.json', { generatedAt: dashboard.generatedAt, alerts: buildAle
 write(dir, 'vault.json', sealVault(vaultContents(dashboard, HOLDINGS), DEMO_TOKEN));
 
 const html = readFileSync(src('web/index.html'), 'utf8');
-write(dir, 'index.html', injectShim(html, {
+write(dir, 'index.html', injectShim(setPalette(html, PALETTE), {
   name: REPO,
   project: 'equity-watch',
   anchor: now.toISOString(),

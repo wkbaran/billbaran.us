@@ -44,6 +44,18 @@ export function writeSource(dir: string, repo: string): void {
   write(dir, 'SOURCE.json', JSON.stringify({ repo: `https://github.com/wkbaran/${repo}`, commit: sha, dirty, generatedAt: new Date().toISOString() }, null, 2) + '\n');
 }
 
+/**
+ * Swaps the default palette on <html data-palette="ground,ink,signal">.
+ * equity-watch and spread-book ship with the same default as this site, so
+ * their demos get their own here and don't read as part of the page around
+ * them. A visitor's own pick in the app's palette panel still wins.
+ */
+export function setPalette(html: string, colors: [string, string, string]): string {
+  const attr = /(<html\b[^>]*\bdata-palette=")[^"]*"/i;
+  if (!attr.test(html)) throw new Error('page has no data-palette on <html>');
+  return html.replace(attr, `$1${colors.join(',')}"`);
+}
+
 const SHIM = readFileSync(join(ROOT, 'scripts', 'demos', 'demo-shim.js'), 'utf8');
 
 /**

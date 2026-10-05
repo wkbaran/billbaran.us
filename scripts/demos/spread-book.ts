@@ -11,11 +11,13 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copy, injectShim, outDir, repoPath, ROOT, write, writeSource } from './common.ts';
+import { copy, injectShim, outDir, repoPath, ROOT, setPalette, write, writeSource } from './common.ts';
 
 const REPO = 'spread-book';
 /** Any zone but market time: book.js reads snapshot stamps in the author's local zone. */
 const LOCAL_ZONE = /America\/(?!New_York)[A-Za-z_]+/g;
+/** Claret and sky: a ledger's leather with a cool accent, set apart from the site's stone grey and amber. */
+const PALETTE: [string, string, string] = ['#2e1322', '#f2e5da', '#8cbfe0'];
 const APP_FILES = ['portfolio.js', 'generate-index.js', 'book.js', 'report.js', 'report.css', 'theme.css', 'palette.js', 'package.json'];
 
 let seed = 7;
@@ -98,7 +100,7 @@ for (const f of readdirSync(reports)) {
   if (f.endsWith('-prices.json')) continue; // empty: the price fetch was refused
   if (!f.endsWith('.html')) { copy(join(reports, f), dir, f); continue; }
   const html = readFileSync(join(reports, f), 'utf8').replace(LOCAL_ZONE, 'America/New_York');
-  write(dir, f, injectShim(html, { name: REPO, project: 'spread-book', theme: { key: 'optionspread.theme', toggle: '#theme-btn' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
+  write(dir, f, injectShim(setPalette(html, PALETTE), { name: REPO, project: 'spread-book', theme: { key: 'optionspread.theme', toggle: '#theme-btn' }, allowHosts: ['fonts.googleapis.com', 'fonts.gstatic.com'] }));
 }
 writeSource(dir, REPO);
 console.log(`spread-book demo -> ${dir}`);

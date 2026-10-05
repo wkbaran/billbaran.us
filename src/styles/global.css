@@ -4,10 +4,10 @@
  * mixed from them. Light mode swaps ground and ink and pulls the signal toward
  * the new ground so it keeps its contrast.
  */
-:root { --ground: var(--p-ground, #0e2a31); --ink: var(--p-ink, #ece4d0); --signal: var(--p-signal, #f3a83b); color-scheme: dark; }
+:root { --ground: var(--p-ground, #1a1b1d); --ink: var(--p-ink, #ecebe6); --signal: var(--p-signal, #ff5a4e); color-scheme: dark; }
 :root[data-theme="light"] {
-  --ground: var(--p-ink, #ece4d0); --ink: var(--p-ground, #0e2a31);
-  --signal: color-mix(in oklab, var(--p-signal, #f3a83b) 62%, var(--p-ground, #0e2a31)); color-scheme: light;
+  --ground: var(--p-ink, #ecebe6); --ink: var(--p-ground, #1a1b1d);
+  --signal: color-mix(in oklab, var(--p-signal, #ff5a4e) 62%, var(--p-ground, #1a1b1d)); color-scheme: light;
 }
 :root {
   --surface: color-mix(in oklab, var(--ink) 5%, var(--ground));
