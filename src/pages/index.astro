@@ -14,7 +14,6 @@ const jobs = await Promise.all(
     .sort((a, b) => a.data.order - b.data.order)
     .map(async (e) => ({ ...e.data, Content: (await render(e)).Content })),
 );
-const years = new Date().getFullYear() - 1998;
 const dev = import.meta.env.DEV;
 
 const hobbies = [
@@ -24,7 +23,7 @@ const hobbies = [
   },
   {
     title: '3D printing',
-    body: 'Functional prints for around the house and the homelab: brackets, enclosures, organizers and replacement parts. Measure, model, print, then reprint once more.',
+    body: 'Functional parts, designed myself. I learned Fusion 360 to model them, most recently a set of brackets for LED lighting. Measure, model, print, then reprint once more.',
   },
   {
     title: 'Learning Japanese',
@@ -42,7 +41,7 @@ const hobbies = [
   <section class="hero">
     <div class="wrap">
       <h1 class="name">Bill Baran</h1>
-      <p class="role">Software architect in {SITE.location}, {years} years in.</p>
+      <p class="role">Software architect in {SITE.location}, {SITE.years} years in.</p>
       <p class="lede">
         {SITE.summary}{' '}
         Below are four apps I run every day, each with a working demo. There's also <a href="/llm-workflows/">how I build with LLMs</a>, and you can <a href="#contact">email me</a>.
@@ -107,7 +106,10 @@ const hobbies = [
         ))}
         <li class="job">
           <div class="when">Education</div>
-          <div><h3>Rose-Hulman Institute of Technology</h3></div>
+          <div>
+            <h3>BS Computer Science, <span class="org">Rose-Hulman Institute of Technology</span></h3>
+            <p class="muted loc">Minor in mathematics</p>
+          </div>
         </li>
       </ol>
     </div>
@@ -150,7 +152,7 @@ const hobbies = [
   <section class="block" id="contact" aria-labelledby="contact-h">
     <div class="wrap">
       <h2 id="contact-h">Contact</h2>
-      <p class="lede">Hiring for architecture, AWS, Java, or agent and LLM engineering? Or curious how something here works? Email is the best way to reach me.</p>
+      <p class="lede">I take on occasional consulting and contract work: architecture, moving systems to AWS, retiring legacy platforms, and bringing AI-assisted development to a team. If that's you, or you're curious how something here works, email is the best way to reach me.</p>
       <Contact />
     </div>
   </section>
