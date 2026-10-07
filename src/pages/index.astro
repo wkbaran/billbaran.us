@@ -41,11 +41,17 @@ const hobbies = [
   <section class="hero">
     <div class="wrap">
       <h1 class="name">Bill Baran</h1>
-      <p class="role">Software architect in {SITE.location}, {SITE.years} years in.</p>
+      <p class="role">Software architect in {SITE.location}, building reliable payment, cloud, and AI-enabled systems.</p>
       <p class="lede">
         {SITE.summary}{' '}
         Below are four apps I run every day, each with a working demo. There's also <a href="/llm-workflows/">how I build with LLMs</a>, and you can <a href="#contact">email me</a>.
       </p>
+      <ul class="proof" aria-label="Professional focus">
+        <li>Government payments</li>
+        <li>Legacy platform retirement</li>
+        <li>AWS modernization</li>
+        <li>AI-assisted development</li>
+      </ul>
     </div>
   </section>
 
@@ -63,7 +69,7 @@ const hobbies = [
 
       <div class="llm-teaser">
         <div>
-          <h3><a href="/llm-workflows/">Scheduled agents that are cheap and don't make mistakes</a></h3>
+          <h3><a href="/llm-workflows/">Scheduled agents that are cheap and reliable</a></h3>
           <p class="sub">
             Three MCP servers I wrote, for Substack, Medium and Spotify, plus the Hermes skills and cron jobs that use them. They produce a daily reading digest and a playlist twice a week.
             Moving the bookkeeping out of the prompt and into code cut the Medium digest from <strong>$3.26 to $0.27</strong> a run.
@@ -152,7 +158,7 @@ const hobbies = [
   <section class="block" id="contact" aria-labelledby="contact-h">
     <div class="wrap">
       <h2 id="contact-h">Contact</h2>
-      <p class="lede">I take on occasional consulting and contract work: architecture, moving systems to AWS, retiring legacy platforms, and bringing AI-assisted development to a team. If that's you, or you're curious how something here works, email is the best way to reach me.</p>
+      <p class="lede">I take on occasional consulting and contract work, and I'm open to the right senior engineering or architecture role. The problems I know best are moving systems to AWS, retiring legacy platforms, payment and integration architecture, and bringing AI-assisted development to a team. If that's what you're working on, or you're curious how something here works, email is the best way to reach me.</p>
       <Contact />
     </div>
   </section>
@@ -167,6 +173,12 @@ const hobbies = [
   }
   .role { font-size: var(--step-2); font-weight: 600; font-stretch: 90%; margin: 0 0 .8rem; }
   .lede a { color: var(--ink); text-decoration-color: var(--signal); }
+  .proof {
+    list-style: none; display: flex; flex-wrap: wrap; gap: .35rem 1.5rem;
+    margin: 1.4rem 0 0; padding: 1rem 0 0; border-top: 1px solid var(--line);
+    color: var(--sub); font-size: var(--step--1); font-weight: 600;
+  }
+  .proof li::before { content: '•'; color: var(--signal); margin-right: .5rem; }
 
   .block.first { border-top: 0; padding-top: 0; }
   .note { margin: 0; max-width: 52ch; font-size: var(--step--1); }
