@@ -8,7 +8,7 @@ interface Step { actor: string; title: string; note: string; call?: string; outp
 interface Run { id: string; label: string; schedule: string; steps: Step[] }
 interface Props { replays: Run[] }
 const { replays } = Astro.props;
-const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subagent: 'Subagent', cron: 'Scheduler' };
+const ACTOR: Record<string, string> = { model: 'Model', job: 'Code', cron: 'Scheduler' };
 ---
 <div class="replay" data-replay>
   <div class="tabs" role="tablist" aria-label="Choose a run">
@@ -40,7 +40,7 @@ const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subage
               </header>
               <p class="sub">{s.note}</p>
               {s.call && (<><h4>Arguments</h4><pre class="call"><code>{s.call}</code></pre></>)}
-              {s.output && (<><h4>{s.actor === 'subagent' && !s.call ? 'Reply' : 'Result'}</h4><pre class="out"><code>{s.output}</code></pre></>)}
+              {s.output && (<><h4>{s.actor === 'model' && !s.call ? 'Answer' : 'Result'}</h4><pre class="out"><code>{s.output}</code></pre></>)}
               <nav class="pager">
                 <button type="button" data-go="-1" disabled={j === 0}>Back</button>
                 <span class="muted">Step {j + 1} of {r.steps.length}</span>
@@ -111,9 +111,8 @@ const ACTOR: Record<string, string> = { model: 'Model', server: 'Server', subage
   .step[aria-current] { border-color: var(--signal); background: var(--wash); }
   .step[aria-current] .n { color: var(--signal); }
   .a-model .who, .badge.a-model { color: var(--signal); }
-  .a-subagent .who, .badge.a-subagent { color: color-mix(in oklab, var(--signal) 55%, var(--ink)); }
-  .a-server .who, .badge.a-server, .a-cron .who, .badge.a-cron { color: #4fb68a; }
-  :global([data-theme="light"]) .a-server .who, :global([data-theme="light"]) .badge.a-server,
+  .a-job .who, .badge.a-job, .a-cron .who, .badge.a-cron { color: #4fb68a; }
+  :global([data-theme="light"]) .a-job .who, :global([data-theme="light"]) .badge.a-job,
   :global([data-theme="light"]) .a-cron .who, :global([data-theme="light"]) .badge.a-cron { color: #23704f; }
   .pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 1.3rem; min-width: 0; }
   .pane header { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin-bottom: .6rem; }

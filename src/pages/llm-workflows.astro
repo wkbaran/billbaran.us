@@ -31,7 +31,7 @@ const servers = [
   {
     name: 'spotify-discovery-mcp',
     repo: 'https://github.com/wkbaran/spotify-discovery-mcp',
-    what: 'Runs a discovery playlist for a scheduled agent. The code handles feeds, verification, dedup and state. The model only judges the music.',
+    what: 'Runs a discovery playlist for a scheduled job. The code handles feeds, verification, dedup and state. The model only judges the music.',
     tools: ['discovery_begin', 'verify_tracks', 'discovery_review', 'discovery_finish', 'discovery_status', 'forget'],
     notes: [
       'Checks web finds with exact field searches, then compares the label on the ℗ line with what the source claimed.',
@@ -46,22 +46,26 @@ const rules = [
   ['Give the model refs, not data', 'Anything the model copies, it can corrupt. Once a digest went out with 10 of 12 summaries on the wrong posts.'],
   ['Save state inside the final tool call', 'A cron run ends at the last message, so a "then update state" step never ran.'],
   ['Fix reliability with tools, not instructions', 'Each new tool took a decision away from the model, and each of those decisions had failed before.'],
+  ['Drop the agent framework when the job is fixed', 'Most of the failures on Hermes came from the layer around the jobs: renumbered refs, broken tool-call escaping, a final message copied wrong, a persona prompt posted to Discord. A plain script that asks one question per step can\'t fail those ways.'],
+  ['Refuse a finish that skips planned work', 'A digest once went out with no Top picks, because the model forgot its second batch of reads. Now the finish tool refuses a section left empty, unless it\'s marked as empty on purpose.'],
+  ['Budget requests, not just their pace', 'Five lanes in a row used up Spotify\'s daily quota. Pacing can\'t fix a daily cap, but a request budget for each feed can.'],
+  ['Think only where it pays', 'With thinking off except for the final choice, a Spotify lane went from 10–15 minutes to 3–4.'],
   ['Label your own data before tuning', 'Ten minutes of hand labels showed that my written interest profile was wrong, not the classifier.'],
 ];
 ---
-<Base title="LLM workflows" description="MCP servers and scheduled agent jobs where the model only judges and code does the bookkeeping." current="llm">
+<Base title="LLM workflows" description="MCP servers and scheduled jobs where the model only judges and code does the bookkeeping." current="llm">
   <section class="intro">
     <div class="wrap">
-      <h1>The model judges.<br />The server does everything else.</h1>
+      <h1>The model judges.<br />Code does everything else.</h1>
       <p class="lede">
-        Every morning, scheduled agents post a reading digest of Substack and Medium to my Discord. Twice a week they build a Spotify playlist of new music.
-        They run on <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent</a> on a home server, using three MCP servers I wrote.
-        The first versions were long prompts that did everything. The current ones give the model only judgment calls and handle everything else in code.
+        Every morning, scheduled jobs post a reading digest of Substack and Medium to my Discord and build a Spotify playlist of new music.
+        Each job is its own container on a home server: a plain Node script on <a href="https://github.com/wkbaran/cron-llm" target="_blank" rel="noopener">cron-llm</a>, driving one of three MCP servers I wrote, with a local Qwen 27B behind LiteLLM.
+        The first versions were long prompts for <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent</a> that did everything. Then the model got only the judgment calls, with everything else in code. Now there's no agent framework at all.
       </p>
       <div class="stats">
-        <div><strong>$3.26 → $0.27</strong><span>Medium digest, per run</span></div>
-        <div><strong>25 → 8 min</strong><span>Medium digest, wall time</span></div>
-        <div><strong>$0.00</strong><span>Substack digest &amp; Spotify lanes, on a local Qwen 27B</span></div>
+        <div><strong>$3.26 → $0.27</strong><span>Medium digest per run, before it moved to the local model</span></div>
+        <div><strong>10–15 → 3–4 min</strong><span>per Spotify lane, which made a playlist every day practical</span></div>
+        <div><strong>$0.00</strong><span>model cost of all three jobs, on a local Qwen 27B (Jev ranking aside)</span></div>
         <div><strong>By ref</strong><span>the server resolves every ref, so a summary can't land on the wrong post</span></div>
       </div>
     </div>
@@ -70,7 +74,7 @@ const rules = [
   <section class="block flow">
     <div class="wrap">
       <h2>From feed to Discord</h2>
-      <figure class="arch" aria-label="Sources feed MCP servers, which Hermes cron jobs drive; models judge, and results go to Discord and Spotify.">
+      <figure class="arch" aria-label="Sources feed MCP servers, which scheduled job containers drive; the model answers the jobs' questions, and results go to Discord and Spotify.">
         <div class="col">
           <h3>Sources</h3>
           <div class="node">Substack</div><div class="node">Medium</div><div class="node">Spotify + open web</div>
@@ -80,19 +84,20 @@ const rules = [
           <h3>MCP servers <small>code</small></h3>
           <div class="node">substack-reader-mcp</div><div class="node">medium-reader-mcp</div><div class="node">spotify-discovery-mcp</div>
           <div class="node lib">job-ledger: state, locks, refs, dedup</div>
+          <div class="node lib">paced-fetch: API pacing, Retry-After</div>
         </div>
         <div class="arrow" aria-hidden="true">⇄</div>
         <div class="col model">
-          <h3>Hermes Agent <small>models</small></h3>
-          <div class="node">cron → skill</div>
-          <div class="node">main model: Sonnet or local Qwen</div>
-          <div class="node">subagents: local Qwen 27B</div>
+          <h3>Job containers <small>code + model</small></h3>
+          <div class="node">supercronic → job script</div>
+          <div class="node">cron-llm: JSON-schema questions, bounded tool loop</div>
+          <div class="node">LiteLLM → local Qwen 27B</div>
           <div class="node">Jev headline ranking (~1¢/day)</div>
         </div>
         <div class="arrow" aria-hidden="true">→</div>
         <div class="col">
           <h3>Output</h3>
-          <div class="node">Discord digests</div><div class="node">Private playlist <code>hermesYYYYMMDD</code></div><div class="node">No-model report job</div>
+          <div class="node">Discord digests</div><div class="node">Private playlist <code>YYMMDD</code>, one a day</div><div class="node">A report for each lane</div>
         </div>
       </figure>
     </div>
@@ -102,7 +107,7 @@ const rules = [
     <div class="wrap">
       <h2>What the model sees, and what the server does</h2>
       <p class="sub prose">
-        These are the worked examples from each server's docs, with fictional posts and tracks. A test checks them against real tool output, so every call and every result below is exactly what the tools produce.
+        These are the worked examples from each server's docs, with fictional posts and tracks. A test checks them against real tool output, so every tool call and every result below is exactly what the tools produce. The model's answers are written to match.
       </p>
       <Replay replays={replays} />
     </div>
@@ -129,8 +134,8 @@ const rules = [
         <a class="go" href="/projects/equity-watch/#agents">Call the tools yourself in the Equity Watch demo</a>
       </aside>
       <p class="muted small">
-        TypeScript on the official MCP SDK, with zod schemas and vitest. All three are MIT-licensed. The reader servers use each site's own web API with my session, read-only by default.
-        State writes take a lock, go through a temp file and a rename, and keep a <code>.bak</code>, because Hermes runs two copies of each server at once.
+        TypeScript on the official MCP SDK, with zod schemas and vitest. All three are MIT-licensed, on npm, and work from any MCP client: the jobs live in their own repos (<a href="https://github.com/wkbaran/substack-digest" target="_blank" rel="noopener">substack-digest</a>, <a href="https://github.com/wkbaran/medium-digest" target="_blank" rel="noopener">medium-digest</a>, <a href="https://github.com/wkbaran/spotify-discovery" target="_blank" rel="noopener">spotify-discovery</a>). The reader servers use each site's own web API with my session, read-only by default.
+        State writes take a lock, go through a temp file and a rename, and keep a <code>.bak</code>, so a desktop client and a scheduled run can't clobber each other. Every request to a site is paced per host, honours Retry-After, and stops at once when the site blocks.
       </p>
     </div>
   </section>
@@ -138,7 +143,7 @@ const rules = [
   <section class="block">
     <div class="wrap two">
       <div>
-        <h2>Ten days of Medium runs</h2>
+        <h2>Ten days of Medium runs on Hermes</h2>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Run</th><th>Design</th><th class="num">Cost</th><th class="num">Time</th></tr></thead>
@@ -176,8 +181,8 @@ const rules = [
     <div class="wrap">
       <h2>Who acts at each step</h2>
       <div class="diagrams">
-        <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="A digest run. The model acts at steps 2, 3, 4 and 6." />
-        <RunDiagram kind="spotify" title="One Spotify lane run, split between the models and the server" caption="A Spotify lane. Delivery is a separate job with no model." />
+        <RunDiagram kind="digest" title="One digest run, split between the model and the server" caption="A digest run. The model acts at steps 2, 4 and 5." />
+        <RunDiagram kind="spotify" title="One Spotify lane run, split between the models and the server" caption="A Spotify lane. The model acts at steps 2 and 4." />
       </div>
     </div>
   </section>

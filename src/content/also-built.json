@@ -10,6 +10,26 @@
     ]
   },
   {
+    "id": "cron-llm",
+    "name": "cron-llm",
+    "repo": "https://github.com/wkbaran/cron-llm",
+    "blurb": "The runtime for scheduled LLM jobs: JSON-schema questions, a bounded tool loop, an MCP client and Discord delivery, with no agent framework in between. The digests and the playlist run on it.",
+    "tags": [
+      "TypeScript",
+      "LLM ops"
+    ]
+  },
+  {
+    "id": "paced-fetch",
+    "name": "paced-fetch",
+    "repo": "https://github.com/wkbaran/paced-fetch",
+    "blurb": "Polite HTTP for MCP servers: per-host pacing, Retry-After, and a fail-fast stop when a site blocks you.",
+    "tags": [
+      "TypeScript",
+      "HTTP"
+    ]
+  },
+  {
     "id": "etf-compare",
     "name": "etf-compare",
     "repo": "https://github.com/wkbaran/etf-compare",
